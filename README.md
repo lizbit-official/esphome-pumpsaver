@@ -80,6 +80,12 @@ history, diagnostics, raw registers, pump-running binary sensor) is
 
 The PumpSaver broadcast is **baseband IR: there is no 38 kHz carrier**.
 
+> **Safety: stay optical.** Everything here is receive-only, at a distance.
+> Don't open the relay or tap its IR LED electrically: it is a 240 V
+> line-connected device whose internals may be line-referenced, and the IR
+> link already gives you galvanic isolation for free.
+
+
 > **TSOP-style demodulating IR receivers (TSOP38238, VS1838B, KY-022 modules,
 > anything sold as an "IR remote receiver") WILL NOT WORK.** They band-pass
 > filter for a 38/56 kHz carrier this signal does not have, and will output
