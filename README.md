@@ -132,7 +132,7 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.2.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.3.0
     components: [pumpsaver]
 
 remote_receiver:
@@ -184,6 +184,14 @@ sensor:
     last_fault_at:
       name: "Pump Last Fault At"
 
+  # Diagnostics (land in the HA device page's Diagnostics section).
+  # A healthy, well-aimed sensor reads ~40 words/s; see README troubleshooting.
+  - platform: pumpsaver
+    signal_rate:
+      name: "PumpSaver Signal Rate"
+    decode_errors:
+      name: "PumpSaver Decode Errors"
+
 text_sensor:
   - platform: pumpsaver
     last_fault:
@@ -214,6 +222,8 @@ With the example config, the device shows up via the native API as
 | `sensor.pumpsaver_monitor_pump_last_fault_at` | Minutes | — | Run-clock time of the newest fault; changes only when a new fault lands |
 | `sensor.pumpsaver_monitor_pump_last_fault` (text) | Text | — | e.g. `dry well / underload - 774 W, 241.7 V, 5.70 A @ 22d 14h 52m` |
 | `binary_sensor.pumpsaver_monitor_pump_running` | Running | `running` | Derived from power ≥ `threshold` |
+| `sensor.pumpsaver_monitor_pumpsaver_signal_rate` | words/s | diagnostic | ~40 = perfect view of the broadcast (see Troubleshooting) |
+| `sensor.pumpsaver_monitor_pumpsaver_decode_errors` | /min | diagnostic | Sustained >0 = marginal signal or ambient IR |
 
 Because the counters are `total_increasing`, HA's statistics engine tracks
 them automatically — e.g. daily starts/run-time with a
@@ -243,6 +253,8 @@ utility_meter:
 | `register: 0xNN` | 0x01–0xFE (known: 0x01–0x75) | — | raw value | live block ~1.5 s, fault-ring block ~5.8 s; on change only |
 | `last_fault_at` | ring 0x57–0x58 | min | run-clock minutes | once after boot, then only on a new fault |
 | `last_fault` (text_sensor) | ring 0x19/0x1E–0x20/0x57–0x58 | — | formatted record | once after boot, then only on a new fault. Code names: dry-well is proven; overcurrent/voltage/rapid-cycle follow the documented family ordering and carry a `?` until confirmed |
+| `signal_rate` | — (meta) | words/s | decoded words incl. syncs | every ~30 s; diagnostic category |
+| `decode_errors` | — (meta) | /min | bad bursts in claimed frames | every ~30 s; diagnostic category |
 | `binary_sensor` (running) | 0x10 | — | power ≥ `threshold` | on state change only |
 
 Every register is rebroadcast continuously (~1.5 s for the live block
@@ -279,8 +291,18 @@ available within a few seconds.
 
 ## Troubleshooting
 
-- Set `logger: level: VERBOSE` — a working setup logs
-  `Decoded 20 word(s) from ... timings` about twice a second
+- **The `signal_rate` diagnostic sensor is the aiming tool** — the broadcast is
+  a fixed 237 words per 5.81 s cycle, so the number is absolutely calibrated:
+
+  | Reading | Meaning |
+  |---|---|
+  | ~38–41 words/s | Perfect view — you're done |
+  | 15–35 | Partial view — re-aim, move closer |
+  | 1–15 | Marginal — off-axis, too far, or strong ambient IR |
+  | 0 (or no reading) | Wrong sensor type (TSOP?), wiring, or reversed phototransistor legs |
+
+- Without the diagnostic sensor: set `logger: level: VERBOSE` — a working setup
+  logs `Decoded 20 word(s) from ... timings` about twice a second
   (`VERY_VERBOSE` additionally logs every register word).
 - **Nothing decodes:** nine times out of ten it's the sensor — TSOP/38 kHz
   demodulating receivers output nothing on this signal (see the hardware

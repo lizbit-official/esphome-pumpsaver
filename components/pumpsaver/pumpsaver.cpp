@@ -1,5 +1,6 @@
 #include "pumpsaver.h"
 
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -11,11 +12,15 @@ bool PumpSaver::on_receive(remote_base::RemoteReceiveData data) {
   const auto &raw = data.get_raw_data();
   std::vector<DecodedWord> words;
   size_t errors = decode_capture(raw, &words);
-  (void) errors;  // only used when verbose logging is compiled in
   if (words.empty())
     return false;  // not a PumpSaver transmission; let other listeners try
   ESP_LOGV(TAG, "Decoded %u word(s) from %u timings (%u bad burst(s))", (unsigned) words.size(),
            (unsigned) raw.size(), (unsigned) errors);
+  // Signal-quality accounting: count all decoded words (incl. syncs), and bad
+  // bursts only from frames that decoded at least one word (so a TV remote in
+  // the room doesn't register as PumpSaver decode errors).
+  this->window_words_ += words.size();
+  this->window_errors_ += errors;
   for (const auto &w : words) {
     if (w.is_sync())
       continue;
@@ -80,6 +85,29 @@ void PumpSaver::publish_fault_() {
              f.volts_x10 / 10.0f, f.amps_x100 / 100.0f, clock);
     this->last_fault_text_->publish_state(buf);
   }
+#endif
+}
+
+void PumpSaver::loop() {
+#ifdef USE_SENSOR
+  if (this->signal_rate_ == nullptr && this->decode_errors_ == nullptr)
+    return;
+  const uint32_t now = millis();
+  if (this->window_start_ms_ == 0) {
+    this->window_start_ms_ = now;
+    return;
+  }
+  const uint32_t elapsed = now - this->window_start_ms_;
+  if (elapsed < 30000)
+    return;  // publish every ~30 s
+  const float secs = elapsed / 1000.0f;
+  if (this->signal_rate_ != nullptr)
+    this->signal_rate_->publish_state(this->window_words_ / secs);
+  if (this->decode_errors_ != nullptr)
+    this->decode_errors_->publish_state(this->window_errors_ * 60.0f / secs);
+  this->window_words_ = 0;
+  this->window_errors_ = 0;
+  this->window_start_ms_ = now;
 #endif
 }
 

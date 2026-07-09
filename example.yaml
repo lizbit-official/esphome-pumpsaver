@@ -26,7 +26,7 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.2.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.3.0
     components: [pumpsaver]
 
 # Field-proven receiver settings for the PumpSaver's baseband IR broadcast.
@@ -83,6 +83,14 @@ sensor:
   - platform: pumpsaver
     last_fault_at:
       name: "Pump Last Fault At"
+
+  # Diagnostics (land in the HA device page's Diagnostics section).
+  # A healthy, well-aimed sensor reads ~40 words/s; see README troubleshooting.
+  - platform: pumpsaver
+    signal_rate:
+      name: "PumpSaver Signal Rate"
+    decode_errors:
+      name: "PumpSaver Decode Errors"
 
 text_sensor:
   - platform: pumpsaver

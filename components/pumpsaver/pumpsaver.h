@@ -26,6 +26,7 @@ namespace pumpsaver {
 class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
  public:
   void dump_config() override;
+  void loop() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
 
   bool on_receive(remote_base::RemoteReceiveData data) override;
@@ -35,6 +36,8 @@ class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
     this->sensors_.push_back(SensorEntry{sens, -1, multiplier, reg});
   }
   void set_last_fault_at_sensor(sensor::Sensor *sens) { this->last_fault_at_ = sens; }
+  void set_signal_rate_sensor(sensor::Sensor *sens) { this->signal_rate_ = sens; }
+  void set_decode_errors_sensor(sensor::Sensor *sens) { this->decode_errors_ = sens; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void register_running_sensor(binary_sensor::BinarySensor *sens, uint16_t threshold_w) {
@@ -55,7 +58,14 @@ class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
   FaultInfo last_fault_{};
 #ifdef USE_SENSOR
   sensor::Sensor *last_fault_at_{nullptr};
+  sensor::Sensor *signal_rate_{nullptr};
+  sensor::Sensor *decode_errors_{nullptr};
 #endif
+  // Signal-quality window counters (words include syncs; errors only from
+  // frames that contained at least one valid word).
+  uint32_t window_words_{0};
+  uint32_t window_errors_{0};
+  uint32_t window_start_ms_{0};
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *last_fault_text_{nullptr};
 #endif

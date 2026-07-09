@@ -24,6 +24,7 @@ import esphome.config_validation as cv
 from esphome.components import sensor
 from esphome.const import (
     CONF_CURRENT,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     CONF_POWER,
     CONF_POWER_FACTOR,
     CONF_VOLTAGE,
@@ -47,6 +48,8 @@ DEPENDENCIES = ["pumpsaver"]
 CONF_PUMP_STARTS = "pump_starts"
 CONF_RUN_MINUTES = "run_minutes"
 CONF_LAST_FAULT_AT = "last_fault_at"
+CONF_SIGNAL_RATE = "signal_rate"
+CONF_DECODE_ERRORS = "decode_errors"
 CONF_REGISTER = "register"
 
 # name -> (register, multiplier applied to the raw 16-bit value)
@@ -105,9 +108,25 @@ NAMED_SCHEMA = cv.All(
                 accuracy_decimals=0,
                 icon="mdi:alert-circle-check-outline",
             ),
+            # Diagnostics: decoded words/second (a healthy full view of the
+            # broadcast is ~40/s) and bad bursts per minute. Published every ~30 s.
+            cv.Optional(CONF_SIGNAL_RATE): sensor.sensor_schema(
+                unit_of_measurement="words/s",
+                accuracy_decimals=1,
+                state_class=STATE_CLASS_MEASUREMENT,
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                icon="mdi:signal",
+            ),
+            cv.Optional(CONF_DECODE_ERRORS): sensor.sensor_schema(
+                unit_of_measurement="/min",
+                accuracy_decimals=1,
+                state_class=STATE_CLASS_MEASUREMENT,
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                icon="mdi:alert-decagram-outline",
+            ),
         }
     ),
-    cv.has_at_least_one_key(*TYPES, CONF_LAST_FAULT_AT),
+    cv.has_at_least_one_key(*TYPES, CONF_LAST_FAULT_AT, CONF_SIGNAL_RATE, CONF_DECODE_ERRORS),
 )
 
 REGISTER_SCHEMA = sensor.sensor_schema(accuracy_decimals=0).extend(
@@ -138,6 +157,12 @@ async def to_code(config):
     if CONF_LAST_FAULT_AT in config:
         var = await sensor.new_sensor(config[CONF_LAST_FAULT_AT])
         cg.add(hub.set_last_fault_at_sensor(var))
+    if CONF_SIGNAL_RATE in config:
+        var = await sensor.new_sensor(config[CONF_SIGNAL_RATE])
+        cg.add(hub.set_signal_rate_sensor(var))
+    if CONF_DECODE_ERRORS in config:
+        var = await sensor.new_sensor(config[CONF_DECODE_ERRORS])
+        cg.add(hub.set_decode_errors_sensor(var))
     for key, (reg, multiplier) in TYPES.items():
         if key in config:
             var = await sensor.new_sensor(config[key])
