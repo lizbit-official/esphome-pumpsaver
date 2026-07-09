@@ -70,9 +70,11 @@ history, diagnostics, raw registers, pump-running binary sensor) is
 
 - **Any ESP32** with a free RMT-capable GPIO (the component sits on top of
   ESPHome's [`remote_receiver`](https://esphome.io/components/remote_receiver.html)).
-  Classic ESP32, S2, S3, C3, C6 all work. On variants other than the classic
-  ESP32/S2 the RMT idle limit is 32767 µs at the default clock, so use
-  `idle: 30ms` or add `clock_resolution: 500000`.
+  Classic ESP32, S2, S3, C3, C6 all work; compile-verified on classic ESP32
+  and C6, field-proven on an S3. Two porting notes for C3/C6: the RMT idle
+  limit is 32767 µs at the default clock (use `idle: 30ms` or add
+  `clock_resolution: 500000`), and they have fewer pins (C6: GPIO0-23), so
+  adjust the example's GPIO27.
 - ESP8266 is untested and not recommended (no RMT; software capture may drop
   the 100 µs pulses).
 
