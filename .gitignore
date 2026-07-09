@@ -1,0 +1,15 @@
+# ESPHome build artifacts
+.esphome/
+secrets.yaml
+
+# Python
+__pycache__/
+*.pyc
+
+# Host test binary
+tests/test_decoder
+
+# Editors
+.vscode/
+.idea/
+*.swp

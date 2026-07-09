@@ -1,0 +1,83 @@
+# Complete example: ESP32 + bare IR phototransistor watching a
+# SymCom / Littelfuse PumpSaver Plus (tested on the 233-P).
+#
+# See README.md for hardware notes — in particular: you need a BARE
+# phototransistor/photodiode, NOT a TSOP-style 38 kHz IR receiver.
+
+esphome:
+  name: pumpsaver-monitor
+  friendly_name: PumpSaver Monitor
+  min_version: 2025.9.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source: github://lizbit-official/esphome-pumpsaver@v0.1.0
+    components: [pumpsaver]
+
+# Field-proven receiver settings for the PumpSaver's baseband IR broadcast.
+# The phototransistor pulls the GPIO low on IR light -> inverted + pullup.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO27
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  filter: 10us        # real pulses are >= ~95 us; kill shorter glitches
+  idle: 40ms          # > the 11-16 ms inter-word gaps, < the ~146 ms
+                      # inter-transmission gap: one frame per transmission.
+                      # NOTE: on ESP32-C3/S3/C6 the RMT idle limit is 32767 us
+                      # at the default clock; either use idle: 30ms or add
+                      # clock_resolution: 500000.
+  buffer_size: 32kb
+  tolerance: 45%      # wide tolerance; decoding is done by the component
+  receive_symbols: 2048
+
+pumpsaver:
+  receiver_id: ir_rx
+
+sensor:
+  - platform: pumpsaver
+    voltage:
+      name: "Pump Voltage"
+    current:
+      name: "Pump Current"
+    power:
+      name: "Pump Power"
+    power_factor:
+      name: "Pump Power Factor"
+    pump_starts:
+      name: "Pump Starts"
+    run_minutes:
+      name: "Pump Run Time"
+
+  # Advanced: expose any raw register (see the protocol repo's register map).
+  # Values are the raw 16-bit integers; apply scaling with ESPHome filters.
+  - platform: pumpsaver
+    register: 0x02
+    name: "Calibration Voltage"
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+binary_sensor:
+  - platform: pumpsaver
+    name: "Pump Running"
+    threshold: 200  # watts; idle self-draw is ~26 W, running ~820 W

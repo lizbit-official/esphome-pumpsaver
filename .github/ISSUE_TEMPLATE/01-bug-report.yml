@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work — no words decoded, wrong values, config errors, build failures.
+labels: ["bug"]
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: ESPHome version / board
+      placeholder: e.g. 2025.11.4, esp32dev (ESP-IDF)
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: PumpSaver model
+      placeholder: e.g. 233-P
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: >-
+        Include relevant logs. Set `logger: level: VERBOSE` to see per-transmission
+        decode summaries ("Decoded N word(s)..."), or VERY_VERBOSE to log every
+        register word. If nothing decodes at all it is usually the sensor hardware —
+        see the README's IR-sensor and Troubleshooting sections (TSOP receivers
+        don't work).
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Your config (remote_receiver + pumpsaver sections)
+      render: yaml
