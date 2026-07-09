@@ -13,3 +13,7 @@ tests/test_decoder
 .vscode/
 .idea/
 *.swp
+
+# plugin/tool logs and stray downloads must never be committed
+logs/
+*.pdf

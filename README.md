@@ -2,7 +2,9 @@
 
 Monitor a **SymCom / Littelfuse PumpSaver Plus** pump-protection relay in
 Home Assistant. The only hardware is an ESP32 and a $0.30 IR phototransistor.
-Tested on the **233-P**.
+Tested on the **233-P** — the same hardware also ships rebranded as
+**Pentek / Pentair SPP-233P / SPP-235P / SD-F30x** and as
+**Goulds / CentriPro "PumpSaver by SymCom"** units.
 
 PumpSaver relays constantly broadcast their internal state over infrared,
 intended for SymCom's discontinued *Informer* handheld:
@@ -246,9 +248,10 @@ available within a few seconds.
   Treat `power` (device-reported) as the authoritative wattage.
 - The decoder runs whenever **any Informer-era PumpSaver Plus** is
   broadcasting in view. It has been tested against the **233-P** only; other
-  models (231-P Insider, 233-1.5-P, 234-P, 235P, 236-P, 111P) very likely
-  share the framing but may map registers differently — the generic
-  `register:` sensor is your friend there.
+  models (231-P Insider, 233-1.5-P, 234-P, 235P, 236-P, 111P — and their
+  Pentek SPP-series / Goulds CentriPro rebrands) very likely share the
+  framing but may map registers differently — the generic `register:`
+  sensor is your friend there.
 - Registers 0x01–0x18 refresh every ~1.5 s; 0x19–0x75 (fault history) every
   ~5.8 s. Fault-ring semantics are only partially mapped; see the protocol
   repo's register map (`pumpsaver_ir/registers.json`).
