@@ -193,7 +193,7 @@ With the example config, the device shows up via the native API as
 | Entity | Type | Classes | Notes |
 |---|---|---|---|
 | `sensor.pumpsaver_monitor_pump_voltage` | Voltage (V, 1 dp) | `voltage` / `measurement` | Live line voltage — you can watch it sag when the pump starts |
-| `sensor.pumpsaver_monitor_pump_current` | Current (A, 2 dp) | `current` / `measurement` | ~0.1 A idle → ~8.7 A running on the test system |
+| `sensor.pumpsaver_monitor_pump_current` | Current (A, 2 dp) | `current` / `measurement` | ~0.1 A idle → ~8.7 A shown running (leg-sum: true motor current is half that — see Notes) |
 | `sensor.pumpsaver_monitor_pump_power` | Power (W) | `power` / `measurement` | The relay's own wattage reading |
 | `sensor.pumpsaver_monitor_pump_power_factor` | PF (3 dp) | `power_factor` / `measurement` | ~0.78 on the test system |
 | `sensor.pumpsaver_monitor_pump_starts` | Counter | `total_increasing` | Lifetime pump starts — long-term statistics work out of the box |
@@ -240,12 +240,14 @@ available within a few seconds.
 - **All values come from the PumpSaver's own metering.** This component adds
   no measurement of its own — accuracy is whatever the relay's calibration
   gives you.
-- **Factor-2 open question on running power:** at idle the reported power
-  matches V·I·PF exactly, but while the pump runs it reads almost exactly
-  half of V·I·PF — either the current channel double-counts both hot legs of
-  the 240 V circuit, or register 0x13 is displacement-PF. See
-  [PROTOCOL.md §7](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md#7-open-questions).
-  Treat `power` (device-reported) as the authoritative wattage.
+- **Current reads double while the pump runs** (leg-sum): the relay's current
+  channel sees both hot legs of the 240 V circuit under pump load, so the
+  `current` sensor shows ~2× the true motor current while running; idle
+  readings are single-count and correct. `power` is **true watts** and needs
+  no correction. If you prefer true running amps, add
+  `filters: [multiply: 0.5]` to the `current` sensor (at the cost of halved
+  idle readings). Details:
+  [PROTOCOL.md §5](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md#5-register-map).
 - The decoder runs whenever **any Informer-era PumpSaver Plus** is
   broadcasting in view. It has been tested against the **233-P** only; other
   models (231-P Insider, 233-1.5-P, 234-P, 235P, 236-P, 111P — and their
