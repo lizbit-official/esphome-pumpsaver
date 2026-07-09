@@ -12,6 +12,9 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
+#ifdef USE_TEXT_SENSOR
+#include "esphome/components/text_sensor/text_sensor.h"
+#endif
 
 #include "pumpsaver_decode.h"
 
@@ -31,15 +34,31 @@ class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
   void register_sensor(uint8_t reg, float multiplier, sensor::Sensor *sens) {
     this->sensors_.push_back(SensorEntry{sens, -1, multiplier, reg});
   }
+  void set_last_fault_at_sensor(sensor::Sensor *sens) { this->last_fault_at_ = sens; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void register_running_sensor(binary_sensor::BinarySensor *sens, uint16_t threshold_w) {
     this->binary_sensors_.push_back(BinaryEntry{sens, threshold_w, -1});
   }
 #endif
+#ifdef USE_TEXT_SENSOR
+  void set_last_fault_text_sensor(text_sensor::TextSensor *sens) { this->last_fault_text_ = sens; }
+#endif
 
  protected:
   void handle_word_(uint8_t reg, uint16_t value);
+  void publish_fault_();
+
+  FaultRing ring_;
+  bool ring_dirty_{false};
+  bool fault_published_{false};
+  FaultInfo last_fault_{};
+#ifdef USE_SENSOR
+  sensor::Sensor *last_fault_at_{nullptr};
+#endif
+#ifdef USE_TEXT_SENSOR
+  text_sensor::TextSensor *last_fault_text_{nullptr};
+#endif
 
 #ifdef USE_SENSOR
   struct SensorEntry {

@@ -21,6 +21,10 @@
 
 using esphome::pumpsaver::DecodedWord;
 using esphome::pumpsaver::decode_capture;
+using esphome::pumpsaver::FaultInfo;
+using esphome::pumpsaver::FaultRing;
+using esphome::pumpsaver::fault_code_name;
+using esphome::pumpsaver::format_run_clock;
 
 static int failures = 0;
 
@@ -67,6 +71,7 @@ int main(int argc, char **argv) {
   }
 
   size_t total_words = 0, sync_words = 0, total_errors = 0, lines = 0;
+  FaultRing ring;
   std::map<uint8_t, uint16_t> regs;  // latest value per register (syncs skipped)
 
   std::string line;
@@ -87,6 +92,7 @@ int main(int argc, char **argv) {
         sync_words++;
       } else {
         regs[w.reg] = w.value;
+        ring.update(w.reg, w.value);
       }
     }
   }
@@ -104,6 +110,19 @@ int main(int argc, char **argv) {
   CHECK(regs.count(0x11) && regs[0x11] >= 2400 && regs[0x11] <= 2450,
         "reg 0x11 (volts x10) in [2400, 2450]");
   CHECK(regs.count(0x17) && regs[0x17] == 57671, "reg 0x17 (run minutes) == 57671");
+
+  CHECK(ring.ready(), "fault ring complete");
+  FaultInfo nf = ring.newest();
+  std::printf("newest fault: code=%u (%s) W=%u V=%u A=%u at=%u\n", nf.code,
+              fault_code_name(nf.code), nf.watts, nf.volts_x10, nf.amps_x100,
+              (unsigned) nf.at_minutes);
+  CHECK(nf.code == 4, "newest fault code == 4");
+  CHECK(nf.watts == 774 && nf.volts_x10 == 2417 && nf.amps_x100 == 570,
+        "newest fault snapshot == (774 W, 2417, 570)");
+  CHECK(nf.at_minutes == 32572, "newest fault at run-clock 32572 min");
+  char clock[24];
+  format_run_clock(nf.at_minutes, clock, sizeof(clock));
+  CHECK(std::string(clock) == "22d 14h 52m", "run-clock formats as 22d 14h 52m");
 
   if (failures) {
     std::printf("%d check(s) FAILED\n", failures);

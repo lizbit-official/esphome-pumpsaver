@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace esphome {
@@ -138,6 +139,102 @@ inline size_t decode_capture(const std::vector<int32_t> &data, std::vector<Decod
   }
   return errors;
 }
+
+// ---------------------------------------------------------------------------
+// Fault-history ring (registers 0x19-0x75), layout per PROTOCOL.md v0.2:
+//   0x19-0x1D  20 x 4-bit fault codes, packed MSB-first, newest first
+//   0x1E-0x56  19 x (W, V*10, A*100) snapshots, record k starts at 0x1E+3k
+//   0x57-0x74  20 x 3-byte run-clock timestamps (24-bit BE minutes), newest first
+//   0x75       trailer (unresolved)
+// ---------------------------------------------------------------------------
+
+static constexpr uint8_t PS_REG_FAULT_FIRST = 0x19;
+static constexpr uint8_t PS_REG_FAULT_LAST = 0x75;
+static constexpr uint8_t PS_REG_FAULT_TS_END = 0x74;  // last register of a ring refresh cycle
+
+struct FaultInfo {
+  uint8_t code;
+  uint16_t watts;
+  uint16_t volts_x10;
+  uint16_t amps_x100;
+  uint32_t at_minutes;  // run-clock minutes at the fault (same unit as reg 0x17)
+
+  bool operator==(const FaultInfo &o) const {
+    return code == o.code && watts == o.watts && volts_x10 == o.volts_x10 &&
+           amps_x100 == o.amps_x100 && at_minutes == o.at_minutes;
+  }
+};
+
+/// Code 1 is proven (dry-well/dead-head underload trip); 2-4 follow the family's
+/// documented fault-class ordering (overcurrent, voltage, rapid-cycle) — unverified,
+/// hence the question marks. No public code table exists.
+inline const char *fault_code_name(uint8_t code) {
+  switch (code) {
+    case 0:
+      return "none";
+    case 1:
+      return "dry well / underload";
+    case 2:
+      return "overcurrent?";
+    case 3:
+      return "voltage fault?";
+    case 4:
+      return "rapid cycle?";
+    default:
+      return "unknown code";
+  }
+}
+
+/// Render run-clock minutes the way the Informer displays them, e.g. "22d 14h 52m".
+inline void format_run_clock(uint32_t minutes, char *buf, size_t len) {
+  unsigned d = (unsigned) (minutes / 1440), h = (unsigned) ((minutes / 60) % 24),
+           m = (unsigned) (minutes % 60);
+  snprintf(buf, len, "%ud %uh %um", d, h, m);
+}
+
+/// Accumulates fault-ring registers as they arrive (~every 5.8 s) and exposes the
+/// newest fault record. Pure logic — host-testable.
+class FaultRing {
+ public:
+  /// Feed one register word. Returns true iff it belonged to the ring AND changed
+  /// a stored value (i.e. first sighting or a real ring shift).
+  bool update(uint8_t reg, uint16_t value) {
+    if (reg < PS_REG_FAULT_FIRST || reg > PS_REG_FAULT_LAST)
+      return false;
+    int idx = reg - PS_REG_FAULT_FIRST;
+    if (this->have_[idx] && this->regs_[idx] == value)
+      return false;
+    this->regs_[idx] = value;
+    this->have_[idx] = true;
+    return true;
+  }
+
+  /// True once every register needed by newest() has been seen.
+  bool ready() const {
+    return this->have(0x19) && this->have(0x1E) && this->have(0x1F) && this->have(0x20) &&
+           this->have(0x57) && this->have(0x58);
+  }
+
+  /// The newest (index 0) fault record. Only valid when ready().
+  FaultInfo newest() const {
+    FaultInfo f;
+    f.code = (uint8_t) (this->get(0x19) >> 12);  // first packed nibble
+    f.watts = this->get(0x1E);
+    f.volts_x10 = this->get(0x1F);
+    f.amps_x100 = this->get(0x20);
+    // Timestamp 0 = first 3 bytes of the big-endian byte stream of 0x57..0x74.
+    uint16_t r0 = this->get(0x57), r1 = this->get(0x58);
+    f.at_minutes = (((uint32_t) r0) << 8) | (r1 >> 8);
+    return f;
+  }
+
+ protected:
+  bool have(uint8_t reg) const { return this->have_[reg - PS_REG_FAULT_FIRST]; }
+  uint16_t get(uint8_t reg) const { return this->regs_[reg - PS_REG_FAULT_FIRST]; }
+
+  uint16_t regs_[PS_REG_FAULT_LAST - PS_REG_FAULT_FIRST + 1] = {0};
+  bool have_[PS_REG_FAULT_LAST - PS_REG_FAULT_FIRST + 1] = {false};
+};
 
 }  // namespace pumpsaver
 }  // namespace esphome

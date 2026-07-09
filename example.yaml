@@ -26,7 +26,7 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.1.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.2.0
     components: [pumpsaver]
 
 # Field-proven receiver settings for the PumpSaver's baseband IR broadcast.
@@ -76,6 +76,18 @@ sensor:
     accuracy_decimals: 1
     filters:
       - multiply: 0.1
+
+  # Fault history (ring decoded in protocol spec v0.2): run-clock minutes of
+  # the newest fault. Changes only when a new fault is logged - ideal as an
+  # automation trigger.
+  - platform: pumpsaver
+    last_fault_at:
+      name: "Pump Last Fault At"
+
+text_sensor:
+  - platform: pumpsaver
+    last_fault:
+      name: "Pump Last Fault"
 
 binary_sensor:
   - platform: pumpsaver

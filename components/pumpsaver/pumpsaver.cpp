@@ -48,6 +48,39 @@ void PumpSaver::handle_word_(uint8_t reg, uint16_t value) {
     }
   }
 #endif
+  // Fault-history ring: accumulate, and publish the newest record once per ring
+  // refresh (~5.8 s) when something actually changed (boot, or a real new fault).
+  if (this->ring_.update(reg, value))
+    this->ring_dirty_ = true;
+  if (reg == PS_REG_FAULT_TS_END && this->ring_dirty_ && this->ring_.ready()) {
+    this->ring_dirty_ = false;
+    this->publish_fault_();
+  }
+}
+
+void PumpSaver::publish_fault_() {
+  FaultInfo f = this->ring_.newest();
+  if (this->fault_published_ && f == this->last_fault_)
+    return;
+  this->fault_published_ = true;
+  this->last_fault_ = f;
+  ESP_LOGD(TAG, "Newest fault: code %u (%s), %u W, %.1f V, %.2f A, at run-clock %u min", f.code,
+           fault_code_name(f.code), f.watts, f.volts_x10 / 10.0f, f.amps_x100 / 100.0f,
+           (unsigned) f.at_minutes);
+#ifdef USE_SENSOR
+  if (this->last_fault_at_ != nullptr)
+    this->last_fault_at_->publish_state((float) f.at_minutes);
+#endif
+#ifdef USE_TEXT_SENSOR
+  if (this->last_fault_text_ != nullptr) {
+    char clock[24];
+    format_run_clock(f.at_minutes, clock, sizeof(clock));
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%s - %u W, %.1f V, %.2f A @ %s", fault_code_name(f.code), f.watts,
+             f.volts_x10 / 10.0f, f.amps_x100 / 100.0f, clock);
+    this->last_fault_text_->publish_state(buf);
+  }
+#endif
 }
 
 void PumpSaver::dump_config() {

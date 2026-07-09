@@ -46,6 +46,7 @@ DEPENDENCIES = ["pumpsaver"]
 
 CONF_PUMP_STARTS = "pump_starts"
 CONF_RUN_MINUTES = "run_minutes"
+CONF_LAST_FAULT_AT = "last_fault_at"
 CONF_REGISTER = "register"
 
 # name -> (register, multiplier applied to the raw 16-bit value)
@@ -97,9 +98,16 @@ NAMED_SCHEMA = cv.All(
                 state_class=STATE_CLASS_TOTAL_INCREASING,
                 icon="mdi:timer-outline",
             ),
+            # Run-clock minutes (same unit as run_minutes) at which the newest
+            # fault-history record was logged; changes only when a new fault lands.
+            cv.Optional(CONF_LAST_FAULT_AT): sensor.sensor_schema(
+                unit_of_measurement=UNIT_MINUTE,
+                accuracy_decimals=0,
+                icon="mdi:alert-circle-check-outline",
+            ),
         }
     ),
-    cv.has_at_least_one_key(*TYPES),
+    cv.has_at_least_one_key(*TYPES, CONF_LAST_FAULT_AT),
 )
 
 REGISTER_SCHEMA = sensor.sensor_schema(accuracy_decimals=0).extend(
@@ -127,6 +135,9 @@ async def to_code(config):
         var = await sensor.new_sensor(config)
         cg.add(hub.register_sensor(config[CONF_REGISTER], 1.0, var))
         return
+    if CONF_LAST_FAULT_AT in config:
+        var = await sensor.new_sensor(config[CONF_LAST_FAULT_AT])
+        cg.add(hub.set_last_fault_at_sensor(var))
     for key, (reg, multiplier) in TYPES.items():
         if key in config:
             var = await sensor.new_sensor(config[key])

@@ -132,7 +132,7 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.1.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.2.0
     components: [pumpsaver]
 
 remote_receiver:
@@ -177,6 +177,18 @@ sensor:
     filters:
       - multiply: 0.1
 
+  # Fault history (ring decoded in protocol spec v0.2): run-clock minutes of
+  # the newest fault. Changes only when a new fault is logged - ideal as an
+  # automation trigger.
+  - platform: pumpsaver
+    last_fault_at:
+      name: "Pump Last Fault At"
+
+text_sensor:
+  - platform: pumpsaver
+    last_fault:
+      name: "Pump Last Fault"
+
 binary_sensor:
   - platform: pumpsaver
     name: "Pump Running"
@@ -199,6 +211,8 @@ With the example config, the device shows up via the native API as
 | `sensor.pumpsaver_monitor_pump_starts` | Counter | `total_increasing` | Lifetime pump starts — long-term statistics work out of the box |
 | `sensor.pumpsaver_monitor_pump_run_time` | Minutes | `total_increasing` | Lifetime run-time; ticks once per minute while pumping |
 | `sensor.pumpsaver_monitor_calibration_voltage` | Voltage (V, 1 dp) | — | Example of the generic `register:` sensor |
+| `sensor.pumpsaver_monitor_pump_last_fault_at` | Minutes | — | Run-clock time of the newest fault; changes only when a new fault lands |
+| `sensor.pumpsaver_monitor_pump_last_fault` (text) | Text | — | e.g. `dry well / underload - 774 W, 241.7 V, 5.70 A @ 22d 14h 52m` |
 | `binary_sensor.pumpsaver_monitor_pump_running` | Running | `running` | Derived from power ≥ `threshold` |
 
 Because the counters are `total_increasing`, HA's statistics engine tracks
@@ -227,6 +241,8 @@ utility_meter:
 | `pump_starts` | 0x0F | starts | raw × 1 | live block, ~1.5 s; on change only (total_increasing) |
 | `run_minutes` | 0x17 | min | raw × 1 | live block, ~1.5 s; on change only (total_increasing) |
 | `register: 0xNN` | 0x01–0xFE (known: 0x01–0x75) | — | raw value | live block ~1.5 s, fault-ring block ~5.8 s; on change only |
+| `last_fault_at` | ring 0x57–0x58 | min | run-clock minutes | once after boot, then only on a new fault |
+| `last_fault` (text_sensor) | ring 0x19/0x1E–0x20/0x57–0x58 | — | formatted record | once after boot, then only on a new fault. Code names: dry-well is proven; overcurrent/voltage/rapid-cycle follow the documented family ordering and carry a `?` until confirmed |
 | `binary_sensor` (running) | 0x10 | — | power ≥ `threshold` | on state change only |
 
 Every register is rebroadcast continuously (~1.5 s for the live block
