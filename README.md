@@ -93,7 +93,10 @@ pulses. Note its narrow ±12° acceptance angle: aim it at the IR window (the
 `signal_rate` diagnostic makes that easy). Any cheap 3 or 5 mm IR
 phototransistor also works (PT334-6C, L-53P3C, or whatever your parts drawer
 labels an "IR receiver diode"; unfiltered clear-package parts are more
-sensitive to ambient light). Requirements: resolves 100 µs to 3 ms pulses
+sensitive to ambient light). Three-lead phototransistors (e.g. Vishay
+BPW77NA) also work but add pitfalls: wire collector and emitter only, leave
+the base floating, and beware that unfiltered high-sensitivity parts can
+saturate in room light and read as dead. Requirements: resolves 100 µs to 3 ms pulses
 (≥10 kHz bandwidth, which practically any phototransistor has), ~850–950 nm,
 and wired to pull the GPIO low with the internal pull-up as the load (hence
 `inverted: true`):
@@ -222,6 +225,10 @@ a few volts at the instant of pump inrush.)
   receivers output nothing on this signal. Otherwise: swap the
   phototransistor's legs, move closer, aim at the IR window, re-check
   `inverted: true` and the pullup.
+- **Nothing decodes and the GPIO reads constant low:** an unfiltered,
+  high-sensitivity part is likely saturated by ambient light (the transistor
+  is fully on). Shade it, test in the dark, or use a daylight-filtered part.
+  On 3-lead parts, also confirm the base lead is floating.
 - **Words decode but entities don't update:** entities publish on change only;
   constant registers publish once after boot and then hold.
 - **Config error on `idle: 40ms` (ESP32-C3/S3/C6):** RMT idle limit. Use
