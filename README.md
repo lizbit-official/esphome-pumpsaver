@@ -85,11 +85,17 @@ The PumpSaver broadcast is **baseband IR: there is no 38 kHz carrier**.
 > filter for a 38/56 kHz carrier this signal does not have, and will output
 > nothing.
 
-Use a **bare IR phototransistor**. Any cheap 5 mm part works: PT334-6C,
-L-53P3C, or whatever your parts drawer labels an "IR receiver diode" (the
-2-pin part, ~$0.30). Requirements: resolves 100 µs to 3 ms pulses (≥10 kHz
-bandwidth, which practically any phototransistor has), ~850–950 nm, and wired
-to pull the GPIO low with the internal pull-up as the load (hence
+Use a **bare IR phototransistor**. The development installation uses an
+**OSRAM SFH 309 FA** (DigiKey `475-SFH309FA-4/5-ND`, ~$0.60), a good default:
+its built-in daylight filter (730–1120 nm) rejects visible ambient light
+optically, and its 7 µs switching has 13x margin on the signal's shortest
+pulses. Note its narrow ±12° acceptance angle: aim it at the IR window (the
+`signal_rate` diagnostic makes that easy). Any cheap 3 or 5 mm IR
+phototransistor also works (PT334-6C, L-53P3C, or whatever your parts drawer
+labels an "IR receiver diode"; unfiltered clear-package parts are more
+sensitive to ambient light). Requirements: resolves 100 µs to 3 ms pulses
+(≥10 kHz bandwidth, which practically any phototransistor has), ~850–950 nm,
+and wired to pull the GPIO low with the internal pull-up as the load (hence
 `inverted: true`):
 
 ```
@@ -118,8 +124,9 @@ legs first.**
 
 - Within **1–10 ft** of the relay, aimed at the IR window on its face. The
   relay broadcasts whenever it is powered; no pairing needed.
-- Avoid direct sunlight or strong ambient IR on the sensor. A short piece of
-  heat-shrink over the phototransistor makes a good lens hood.
+- Avoid direct sunlight or strong ambient IR on the sensor. Daylight-filtered
+  parts (like the SFH 309 FA) handle this optically; for unfiltered
+  clear-package parts, a short piece of heat-shrink makes a good lens hood.
 - Use the `signal_rate` diagnostic to aim (see [Troubleshooting](#troubleshooting)).
 
 ## Configuration reference
