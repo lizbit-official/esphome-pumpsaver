@@ -2,55 +2,95 @@
 
 Monitor a **SymCom / Littelfuse PumpSaver Plus** pump-protection relay in
 Home Assistant. The only hardware is an ESP32 and a $0.30 IR phototransistor.
-Tested on the **233-P** — the same hardware also ships rebranded as
-**Pentek / Pentair SPP-233P / SPP-235P / SD-F30x** and as
-**Goulds / CentriPro "PumpSaver by SymCom"** units.
+Nothing is wired to the relay, and nothing is transmitted.
 
 PumpSaver relays constantly broadcast their internal state over infrared,
-intended for SymCom's discontinued *Informer* handheld:
+meant for SymCom's discontinued *Informer* handheld: live **volts / amps /
+watts / power factor**, lifetime **pump-start** and **run-time** counters, and
+the **last-20-faults history**. This component decodes the broadcast passively
+and publishes it all, including a fault notifier the original tooling never
+had.
 
-- live **volts, amps, watts, power factor**
-- lifetime **pump-start** and **run-time** counters
-- trip-point configuration and the last-20-faults history
-
-This component listens passively — nothing is wired to the relay and nothing
-is transmitted — and publishes it all as ESPHome sensors.
-
+Tested on the **233-P**. The same hardware ships rebranded as **Pentek /
+Pentair SPP-233P / SPP-235P / SD-F30x** (also sold under Berkeley, Myers and
+Sta-Rite labels) and as **Goulds / CentriPro "PumpSaver by SymCom"** units.
 The wire format was reverse engineered and verified in the companion
 [pumpsaver-ir-protocol](https://github.com/lizbit-official/pumpsaver-ir-protocol)
-repository; [PROTOCOL.md](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md)
+repo; [PROTOCOL.md](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md)
 has the full specification.
+
+<!-- TODO: photo of the phototransistor mounted at the relay + HA dashboard -->
+
+## Quick start
+
+You need an ESP32 and a **bare IR phototransistor** (~$0.30; *not* a TSOP-style
+"IR remote receiver", see [Hardware](#hardware)). Wire the phototransistor
+between a GPIO and GND, then:
+
+```yaml
+external_components:
+  - source: github://lizbit-official/esphome-pumpsaver@v0.3.0
+    components: [pumpsaver]
+
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO27          # your phototransistor pin
+    inverted: true          # active-low: IR light pulls the pin down
+    mode: { input: true, pullup: true }
+  filter: 10us              # real pulses are >= ~95 us
+  idle: 40ms                # one frame per ~0.5 s transmission
+  buffer_size: 32kb
+  tolerance: 45%
+  receive_symbols: 2048
+  # clock_resolution: 500000   # required for idle > 32ms on ESP32-C3/S3/C6
+
+pumpsaver:
+  receiver_id: ir_rx
+
+sensor:
+  - platform: pumpsaver
+    voltage: { name: "Pump Voltage" }
+    power: { name: "Pump Power" }
+    pump_starts: { name: "Pump Starts" }
+    signal_rate: { name: "PumpSaver Signal Rate" }   # the aiming tool
+```
+
+Flash it, open the device page, and **move the phototransistor until
+`Signal Rate` reads ~40 words/s**. That is a perfect view of the broadcast,
+and entities update within seconds.
+
+The complete config with every entity (current, power factor, run time, fault
+history, diagnostics, raw registers, pump-running binary sensor) is
+[`example.yaml`](example.yaml).
 
 ## Hardware
 
 ### Microcontroller
 
 - **Any ESP32** with a free RMT-capable GPIO (the component sits on top of
-  ESPHome's [`remote_receiver`](https://esphome.io/components/remote_receiver.html),
-  which uses the ESP32's RMT peripheral). Classic ESP32, S2, S3, C3, C6 etc.
-  all work; on variants other than the classic ESP32/S2 the RMT idle limit is
-  32767 µs at the default clock, so use `idle: 30ms` or set
-  `clock_resolution: 500000` (see the example).
+  ESPHome's [`remote_receiver`](https://esphome.io/components/remote_receiver.html)).
+  Classic ESP32, S2, S3, C3, C6 all work. On variants other than the classic
+  ESP32/S2 the RMT idle limit is 32767 µs at the default clock, so use
+  `idle: 30ms` or add `clock_resolution: 500000`.
 - ESP8266 is untested and not recommended (no RMT; software capture may drop
   the 100 µs pulses).
 
-### IR sensor — read this before buying anything
+### IR sensor: read this before buying anything
 
 The PumpSaver broadcast is **baseband IR: there is no 38 kHz carrier**.
 
 > **TSOP-style demodulating IR receivers (TSOP38238, VS1838B, KY-022 modules,
 > anything sold as an "IR remote receiver") WILL NOT WORK.** They band-pass
-> filter for a 38/56 kHz carrier that this signal does not have, and will
-> output nothing.
+> filter for a 38/56 kHz carrier this signal does not have, and will output
+> nothing.
 
-Use a **bare IR phototransistor or photodiode module** instead. Requirements:
-
-- Must resolve pulses of **100 µs to ~3 ms** (≥10 kHz bandwidth — practically
-  any IR phototransistor works; very slow "ambient light" sensors don't).
-- Wavelength ~850–950 nm (standard IR).
-- Open-collector / phototransistor output wired to **pull the GPIO low** when
-  it sees IR, with the ESP32's **internal pull-up** enabled. The logic is
-  therefore active-low, which is why the config uses `inverted: true`.
+Use a **bare IR phototransistor**. Any cheap 5 mm part works: PT334-6C,
+L-53P3C, or whatever your parts drawer labels an "IR receiver diode" (the
+2-pin part, ~$0.30). Requirements: resolves 100 µs to 3 ms pulses (≥10 kHz
+bandwidth, which practically any phototransistor has), ~850–950 nm, and wired
+to pull the GPIO low with the internal pull-up as the load (hence
+`inverted: true`):
 
 ```
         ESP32                    IR phototransistor
@@ -70,167 +110,64 @@ Use a **bare IR phototransistor or photodiode module** instead. Requirements:
    IR light off → pullup wins         → GPIO high (idle)
 ```
 
-Concretely: any cheap 5 mm IR **phototransistor** works — e.g. PT334-6C,
-L-53P3C, or whatever your parts drawer labels an "IR receiver diode" (the
-2-pin part, ~$0.30). Two-pin phototransistors are easy to wire backwards:
-reversed polarity is harmless at 3.3 V but reads nothing — **if you get zero
-signal, swap the two legs first.**
+Two-pin phototransistors are easy to wire backwards. Reversed polarity is
+harmless at 3.3 V but reads nothing: **if you get zero signal, swap the two
+legs first.**
 
 ### Placement
 
-- Within **1–10 ft** of the PumpSaver, aimed at the IR window on the 233-P's
-  face (the broadcast comes from the display/indicator area).
-- Avoid direct sunlight or strong ambient IR (incandescent lamps, heaters) on
-  the sensor — a short piece of heat-shrink over the phototransistor as a
-  "lens hood" helps in bright rooms.
-- The relay broadcasts continuously whenever it is powered; no pairing or
-  triggering is needed.
+- Within **1–10 ft** of the relay, aimed at the IR window on its face. The
+  relay broadcasts whenever it is powered; no pairing needed.
+- Avoid direct sunlight or strong ambient IR on the sensor. A short piece of
+  heat-shrink over the phototransistor makes a good lens hood.
+- Use the `signal_rate` diagnostic to aim (see [Troubleshooting](#troubleshooting)).
 
-### Field-proven `remote_receiver` settings
+## Configuration reference
 
-From the working installation this component was developed against:
+One hub (`pumpsaver:` with `receiver_id`) plus entities on three platforms:
 
-```yaml
-remote_receiver:
-  id: ir_rx
-  pin:
-    number: GPIO27
-    inverted: true
-    mode:
-      input: true
-      pullup: true
-  filter: 10us          # real pulses are >= ~95 us; drop shorter glitches
-  idle: 40ms            # one frame per ~0.5 s transmission
-  buffer_size: 32kb
-  tolerance: 45%
-  receive_symbols: 2048
-  # clock_resolution: 500000   # optional; required for idle > 32ms on C3/S3/C6
-```
-
-## Installation & example
-
-```yaml
-esphome:
-  name: pumpsaver-monitor
-  friendly_name: PumpSaver Monitor
-  min_version: 2025.9.0
-
-esp32:
-  board: esp32dev
-  framework:
-    type: esp-idf
-
-logger:
-
-api:
-
-ota:
-  - platform: esphome
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-
-external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.3.0
-    components: [pumpsaver]
-
-remote_receiver:
-  id: ir_rx
-  pin:
-    number: GPIO27
-    inverted: true
-    mode:
-      input: true
-      pullup: true
-  filter: 10us
-  idle: 40ms
-  buffer_size: 32kb
-  tolerance: 45%
-  receive_symbols: 2048
-
-pumpsaver:
-  receiver_id: ir_rx
-
-sensor:
-  - platform: pumpsaver
-    voltage:
-      name: "Pump Voltage"
-    current:
-      name: "Pump Current"
-    power:
-      name: "Pump Power"
-    power_factor:
-      name: "Pump Power Factor"
-    pump_starts:
-      name: "Pump Starts"
-    run_minutes:
-      name: "Pump Run Time"
-
-  # Advanced: expose any raw register (see the protocol repo's register map).
-  # Values are the raw 16-bit integers; apply scaling with ESPHome filters.
-  - platform: pumpsaver
-    register: 0x02
-    name: "Calibration Voltage"
-    unit_of_measurement: V
-    accuracy_decimals: 1
-    filters:
-      - multiply: 0.1
-
-  # Fault history (ring decoded in protocol spec v0.2): run-clock minutes of
-  # the newest fault. Changes only when a new fault is logged - ideal as an
-  # automation trigger.
-  - platform: pumpsaver
-    last_fault_at:
-      name: "Pump Last Fault At"
-
-  # Diagnostics (land in the HA device page's Diagnostics section).
-  # A healthy, well-aimed sensor reads ~40 words/s; see README troubleshooting.
-  - platform: pumpsaver
-    signal_rate:
-      name: "PumpSaver Signal Rate"
-    decode_errors:
-      name: "PumpSaver Decode Errors"
-
-text_sensor:
-  - platform: pumpsaver
-    last_fault:
-      name: "Pump Last Fault"
-
-binary_sensor:
-  - platform: pumpsaver
-    name: "Pump Running"
-    threshold: 200  # watts; idle self-draw is ~26 W, running ~820 W
-```
-
-(Same file as [`example.yaml`](example.yaml).)
-
-## What you get in Home Assistant
-
-With the example config, the device shows up via the native API as
-**PumpSaver Monitor** with these entities:
-
-| Entity | Type | Classes | Notes |
+| Option (platform) | Reads | Unit / class | Updates |
 |---|---|---|---|
-| `sensor.pumpsaver_monitor_pump_voltage` | Voltage (V, 1 dp) | `voltage` / `measurement` | Live line voltage — you can watch it sag when the pump starts |
-| `sensor.pumpsaver_monitor_pump_current` | Current (A, 2 dp) | `current` / `measurement` | ~0.1 A idle → ~8.7 A shown running (leg-sum: true motor current is half that — see Notes) |
-| `sensor.pumpsaver_monitor_pump_power` | Power (W) | `power` / `measurement` | The relay's own wattage reading |
-| `sensor.pumpsaver_monitor_pump_power_factor` | PF (3 dp) | `power_factor` / `measurement` | ~0.78 on the test system |
-| `sensor.pumpsaver_monitor_pump_starts` | Counter | `total_increasing` | Lifetime pump starts — long-term statistics work out of the box |
-| `sensor.pumpsaver_monitor_pump_run_time` | Minutes | `total_increasing` | Lifetime run-time; ticks once per minute while pumping |
-| `sensor.pumpsaver_monitor_calibration_voltage` | Voltage (V, 1 dp) | — | Example of the generic `register:` sensor |
-| `sensor.pumpsaver_monitor_pump_last_fault_at` | Minutes | — | Run-clock time of the newest fault; changes only when a new fault lands |
-| `sensor.pumpsaver_monitor_pump_last_fault` (text) | Text | — | e.g. `dry well / underload - 774 W, 241.7 V, 5.70 A @ 22d 14h 52m` |
-| `binary_sensor.pumpsaver_monitor_pump_running` | Running | `running` | Derived from power ≥ `threshold` |
-| `sensor.pumpsaver_monitor_pumpsaver_signal_rate` | words/s | diagnostic | ~40 = perfect view of the broadcast (see Troubleshooting) |
-| `sensor.pumpsaver_monitor_pumpsaver_decode_errors` | /min | diagnostic | Sustained >0 = marginal signal or ambient IR |
+| `voltage` (sensor) | live line voltage | V, `voltage` | ~1.5 s, on change |
+| `current` (sensor) | live current ¹ | A, `current` | ~1.5 s, on change |
+| `power` (sensor) | live active power | W, `power` | ~1.5 s, on change |
+| `power_factor` (sensor) | live power factor | `power_factor` | ~1.5 s, on change |
+| `pump_starts` (sensor) | lifetime starts counter | `total_increasing` | on change |
+| `run_minutes` (sensor) | lifetime run-time | min, `total_increasing` | +1/min while pumping |
+| `last_fault_at` (sensor) | run-clock minutes of the newest fault | min | once at boot, then **only when a new fault lands** |
+| `last_fault` (text_sensor) | newest fault, rendered ² | text | same as `last_fault_at` |
+| *(binary_sensor)* `threshold:` | pump running (power ≥ threshold) | `running` | on state change |
+| `signal_rate` (sensor) | decoded words/s | diagnostic | every ~30 s |
+| `decode_errors` (sensor) | bad bursts/min | diagnostic | every ~30 s |
+| `register: 0xNN` (sensor) | any raw 16-bit register ³ | none | on change |
 
-Because the counters are `total_increasing`, HA's statistics engine tracks
-them automatically — e.g. daily starts/run-time with a
-[`utility_meter`](https://www.home-assistant.io/integrations/utility_meter/):
+¹ **Current reads ~2x true motor current while the pump runs** (the relay's
+current channel sees both hot legs of the 240 V circuit under load; idle
+readings are single-count and correct). `power` is true watts and needs no
+correction. For true running amps add `filters: [multiply: 0.5]` and accept
+halved idle readings. Details: [PROTOCOL.md §5](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md#5-register-map).
+
+² Example: `dry well / underload - 774 W, 241.7 V, 5.70 A @ 22d 14h 52m`
+(code, W/V/A snapshot, run-clock timestamp, like the Informer showed it).
+Dry-well is a proven code name; `overcurrent?` / `voltage fault?` /
+`rapid cycle?` follow the documented family ordering, pending confirmation.
+
+³ For protocol exploration; see the
+[register map](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/pumpsaver_ir/registers.json).
+Values are raw integers; scale with ESPHome `filters:`.
+
+Everything publishes on change only (the broadcast repeats every ~1.5 s for
+live values, ~5.8 s for the fault ring), so Home Assistant is not spammed.
+Each entity also publishes once shortly after boot.
+
+## In Home Assistant
+
+The counters are `total_increasing`, so long-term statistics work out of the
+box. Daily starts and runtime are one
+[`utility_meter`](https://www.home-assistant.io/integrations/utility_meter/) away:
 
 ```yaml
-# Home Assistant configuration.yaml
+# configuration.yaml
 utility_meter:
   pump_starts_today:
     source: sensor.pumpsaver_monitor_pump_starts
@@ -240,85 +177,68 @@ utility_meter:
     cycle: daily
 ```
 
-## Sensors
+And the fault entities give you something the Informer never could: a push
+notification when the relay trips, with the full fault record.
 
-| Config key | Register | Unit | Scaling | Update behavior |
-|---|---|---|---|---|
-| `voltage` | 0x11 | V | raw × 0.1 | live block, rebroadcast every ~1.5 s; published **on change only** |
-| `current` | 0x12 | A | raw × 0.01 | live block, ~1.5 s; on change only |
-| `power` | 0x10 | W | raw × 1 | live block, ~1.5 s; on change only |
-| `power_factor` | 0x13 | — | raw × 0.001 | live block, ~1.5 s; on change only |
-| `pump_starts` | 0x0F | starts | raw × 1 | live block, ~1.5 s; on change only (total_increasing) |
-| `run_minutes` | 0x17 | min | raw × 1 | live block, ~1.5 s; on change only (total_increasing) |
-| `register: 0xNN` | 0x01–0xFE (known: 0x01–0x75) | — | raw value | live block ~1.5 s, fault-ring block ~5.8 s; on change only |
-| `last_fault_at` | ring 0x57–0x58 | min | run-clock minutes | once after boot, then only on a new fault |
-| `last_fault` (text_sensor) | ring 0x19/0x1E–0x20/0x57–0x58 | — | formatted record | once after boot, then only on a new fault. Code names: dry-well is proven; overcurrent/voltage/rapid-cycle follow the documented family ordering and carry a `?` until confirmed |
-| `signal_rate` | — (meta) | words/s | decoded words incl. syncs | every ~30 s; diagnostic category |
-| `decode_errors` | — (meta) | /min | bad bursts in claimed frames | every ~30 s; diagnostic category |
-| `binary_sensor` (running) | 0x10 | — | power ≥ `threshold` | on state change only |
+```yaml
+# configuration.yaml (or the automation editor)
+automation:
+  - alias: "Pump fault alert"
+    trigger:
+      - platform: state
+        entity_id: sensor.pumpsaver_monitor_pump_last_fault_at
+    condition:
+      - "{{ trigger.from_state.state not in ['unknown', 'unavailable'] }}"
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "⚠️ Well pump fault"
+          message: "{{ states('sensor.pumpsaver_monitor_pump_last_fault') }}"
+```
 
-Every register is rebroadcast continuously (~1.5 s for the live block
-0x01–0x18, ~5.8 s for the fault-history ring 0x19–0x75). To avoid spamming
-Home Assistant, this component publishes a sensor only when its raw register
-value changes — plus once on the first decode after boot, so entities become
-available within a few seconds.
-
-## Notes & caveats
-
-- **All values come from the PumpSaver's own metering.** This component adds
-  no measurement of its own — accuracy is whatever the relay's calibration
-  gives you.
-- **Current reads double while the pump runs** (leg-sum): the relay's current
-  channel sees both hot legs of the 240 V circuit under pump load, so the
-  `current` sensor shows ~2× the true motor current while running; idle
-  readings are single-count and correct. `power` is **true watts** and needs
-  no correction. If you prefer true running amps, add
-  `filters: [multiply: 0.5]` to the `current` sensor (at the cost of halved
-  idle readings). Details:
-  [PROTOCOL.md §5](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md#5-register-map).
-- The decoder runs whenever **any Informer-era PumpSaver Plus** is
-  broadcasting in view. It has been tested against the **233-P** only; other
-  models (231-P Insider, 233-1.5-P, 234-P, 235P, 236-P, 111P — and their
-  Pentek SPP-series / Goulds CentriPro rebrands) very likely share the
-  framing but may map registers differently — the generic `register:`
-  sensor is your friend there.
-- Registers 0x01–0x18 refresh every ~1.5 s; 0x19–0x75 (fault history) every
-  ~5.8 s. Fault-ring semantics are only partially mapped; see the protocol
-  repo's register map (`pumpsaver_ir/registers.json`).
-- The component coexists with other `remote_receiver` users (e.g.
-  `remote_receiver` binary sensors for TV remotes): it claims only frames
-  that decode as PumpSaver words.
+(Bonus flourish: graph `Pump Voltage` and watch your house's line voltage sag
+a few volts at the instant of pump inrush.)
 
 ## Troubleshooting
 
-- **The `signal_rate` diagnostic sensor is the aiming tool** — the broadcast is
-  a fixed 237 words per 5.81 s cycle, so the number is absolutely calibrated:
+**The `signal_rate` diagnostic is the aiming tool.** The broadcast is a fixed
+237 words per 5.81 s cycle, so the number is absolutely calibrated:
 
-  | Reading | Meaning |
-  |---|---|
-  | ~38–41 words/s | Perfect view — you're done |
-  | 15–35 | Partial view — re-aim, move closer |
-  | 1–15 | Marginal — off-axis, too far, or strong ambient IR |
-  | 0 (or no reading) | Wrong sensor type (TSOP?), wiring, or reversed phototransistor legs |
+| Reading | Meaning |
+|---|---|
+| ~38–41 words/s | Perfect view. You're done |
+| 15–35 | Partial view. Re-aim, move closer |
+| 1–15 | Marginal: off-axis, too far, or strong ambient IR |
+| 0 / no reading | Wrong sensor type (TSOP?), wiring, or reversed phototransistor legs |
 
-- Without the diagnostic sensor: set `logger: level: VERBOSE` — a working setup
-  logs `Decoded 20 word(s) from ... timings` about twice a second
-  (`VERY_VERBOSE` additionally logs every register word).
-- **Nothing decodes:** nine times out of ten it's the sensor — TSOP/38 kHz
-  demodulating receivers output nothing on this signal (see the hardware
-  section). Otherwise: swap the phototransistor's legs, move it closer and
-  aim it at the IR window, and re-check the pin config (`inverted: true`,
-  internal pullup enabled).
-- **Words decode but entities don't update:** entities publish on change
-  only; constant registers publish once after boot and then hold.
-- **ESP32-C3/S3/C6 config error on `idle: 40ms`:** the RMT idle limit is
-  32767 µs at the default clock — use `idle: 30ms` or add
-  `clock_resolution: 500000`.
+- **Nothing decodes:** nine times out of ten it's the sensor. TSOP/38 kHz
+  receivers output nothing on this signal. Otherwise: swap the
+  phototransistor's legs, move closer, aim at the IR window, re-check
+  `inverted: true` and the pullup.
+- **Words decode but entities don't update:** entities publish on change only;
+  constant registers publish once after boot and then hold.
+- **Config error on `idle: 40ms` (ESP32-C3/S3/C6):** RMT idle limit. Use
+  `idle: 30ms` or add `clock_resolution: 500000`.
+- No `signal_rate` configured? `logger: level: VERBOSE` logs
+  `Decoded 20 word(s) ...` about twice a second.
+
+## Notes & caveats
+
+- **All values come from the relay's own metering.** This component adds no
+  measurement of its own; accuracy is whatever the relay's calibration gives
+  you.
+- Tested against the **233-P** only. Other Informer-era models (231-P Insider,
+  233-1.5-P, 234-P, 235P, 236-P, 111P and the Pentek / Goulds rebrands) very
+  likely share the framing but may map registers differently. The generic
+  `register:` sensor is your friend there, and captures are very welcome
+  (below).
+- Coexists with other `remote_receiver` users (e.g. TV-remote binary sensors):
+  it claims only frames that decode as PumpSaver words.
 
 ## Capturing raw data for protocol work
 
-If you have a different PumpSaver model, or want to help map the remaining
-registers, you can dump raw timing frames in the NDJSON format that the
+To help map the remaining registers, or add support for a different model,
+dump raw timing frames in the NDJSON format the
 [protocol repo](https://github.com/lizbit-official/pumpsaver-ir-protocol)'s
 reference decoder consumes directly:
 
@@ -343,10 +263,9 @@ remote_receiver:
             return payload;
 ```
 
-Collect the messages into a file (one JSON object per line), e.g.
-`mosquitto_sub -t pumpsaver/ir/raw > capture.ndjson`, then run them through
-`pumpsaver_ir/decoder.py`. Captures from non-233-P models are very welcome as
-issues/PRs on the protocol repo.
+Collect with `mosquitto_sub -t pumpsaver/ir/raw > capture.ndjson` and file it
+via the protocol repo's
+[capture form](https://github.com/lizbit-official/pumpsaver-ir-protocol/issues/new?template=01-submit-capture.yml).
 
 ## License
 
