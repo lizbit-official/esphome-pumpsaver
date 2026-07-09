@@ -1,17 +1,23 @@
 # esphome-pumpsaver
 
-ESPHome external component that turns an ESP32 with a bare IR phototransistor
-into a Home Assistant monitor for **SymCom / Littelfuse PumpSaver Plus** pump
-protection relays (tested on the **233-P**). These devices continuously
-broadcast their full internal state — live volts/amps/watts, power factor,
-pump-start and run-time counters, configuration and fault history — over a
-baseband infrared link meant for SymCom's "Informer" handheld reader. This
-component decodes that broadcast passively (no wiring to the relay, nothing
-transmitted) and publishes the values as ESPHome sensors. The wire format was
-reverse engineered and verified in the companion
+Monitor a **SymCom / Littelfuse PumpSaver Plus** pump-protection relay in
+Home Assistant. The only hardware is an ESP32 and a $0.30 IR phototransistor.
+Tested on the **233-P**.
+
+PumpSaver relays constantly broadcast their internal state over infrared,
+intended for SymCom's discontinued *Informer* handheld:
+
+- live **volts, amps, watts, power factor**
+- lifetime **pump-start** and **run-time** counters
+- trip-point configuration and the last-20-faults history
+
+This component listens passively — nothing is wired to the relay and nothing
+is transmitted — and publishes it all as ESPHome sensors.
+
+The wire format was reverse engineered and verified in the companion
 [pumpsaver-ir-protocol](https://github.com/lizbit-official/pumpsaver-ir-protocol)
-repository — see its [PROTOCOL.md](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md)
-for the full specification.
+repository; [PROTOCOL.md](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md)
+has the full specification.
 
 ## Hardware
 
