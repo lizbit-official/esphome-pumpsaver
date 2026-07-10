@@ -13,6 +13,15 @@ esphome:
   name: pumpsaver-field
   friendly_name: PumpSaver Field Monitor
   min_version: 2025.9.0
+  # XIAO ESP32-C6 RF switch: ESP-IDF does not drive these pins automatically,
+  # and without them the radio has severely degraded range. GPIO3 low powers
+  # the switch; GPIO14 low selects the internal ceramic antenna (turn_on it
+  # instead if you attach an external U.FL antenna).
+  on_boot:
+    priority: 800
+    then:
+      - output.turn_off: rf_switch_power
+      - output.turn_off: antenna_select
 
 esp32:
   board: seeed_xiao_esp32c6
@@ -29,6 +38,22 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  # Pump houses are usually at WiFi's edge; use full power and keep a
+  # fallback hotspot so a phone can reach the web UI at http://192.168.4.1
+  output_power: 20dB
+  ap:
+    ssid: "PumpSaver Setup"
+    password: "pumpsaver"
+
+captive_portal:
+
+output:
+  - platform: gpio
+    pin: GPIO3
+    id: rf_switch_power
+  - platform: gpio
+    pin: GPIO14
+    id: antenna_select
 
 # Raw-frame dump for protocol analysis; coexists with the native API.
 mqtt:
@@ -76,6 +101,11 @@ pumpsaver:
   link_timeout: 10s
 
 sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 30s
+    entity_category: diagnostic
+
   - platform: pumpsaver
     voltage: { name: "Pump Voltage" }
     current: { name: "Pump Current" }
