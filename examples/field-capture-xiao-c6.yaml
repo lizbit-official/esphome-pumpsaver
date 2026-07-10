@@ -62,7 +62,7 @@ mqtt:
   reboot_timeout: 0s   # never reboot over a broker outage; API is the primary link
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.4.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.5.0
     components: [pumpsaver]
 
 remote_receiver:
@@ -110,7 +110,9 @@ sensor:
     voltage: { name: "Pump Voltage" }
     current: { name: "Pump Current" }
     power: { name: "Pump Power" }
-    power_factor: { name: "Pump Power Factor" }
+    drywell_trip: { name: "Pump Dry-Well Trip Point" }
+    restart_delay_set: { name: "Pump Restart Delay Setting" }
+    restart_remaining: { name: "Pump Restart Countdown" }
     pump_starts: { name: "Pump Starts" }
     run_minutes: { name: "Pump Run Time" }
     last_fault_at: { name: "Pump Last Fault At" }

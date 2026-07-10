@@ -38,6 +38,7 @@ class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
     this->sensors_.push_back(SensorEntry{sens, -1, multiplier, reg});
   }
   void set_last_fault_at_sensor(sensor::Sensor *sens) { this->last_fault_at_ = sens; }
+  void set_restart_remaining_sensor(sensor::Sensor *sens) { this->restart_remaining_ = sens; }
   void set_fault_sequence_sensor(sensor::Sensor *sens) { this->fault_sequence_sensor_ = sens; }
   void set_last_seen_sensor(sensor::Sensor *sens) { this->last_seen_sensor_ = sens; }
   void set_signal_rate_sensor(sensor::Sensor *sens) { this->signal_rate_ = sens; }
@@ -65,6 +66,11 @@ class PumpSaver : public Component, public remote_base::RemoteReceiverListener {
   uint32_t fault_sequence_{0};
 #ifdef USE_SENSOR
   sensor::Sensor *last_fault_at_{nullptr};
+  sensor::Sensor *restart_remaining_{nullptr};
+  // Restart-delay countdown halves ({0x15,0x16}/256 = seconds remaining)
+  uint32_t restart_raw_{0};
+  uint8_t restart_seen_{0};
+  bool restart_published_{false};
   sensor::Sensor *fault_sequence_sensor_{nullptr};
   sensor::Sensor *last_seen_sensor_{nullptr};
   sensor::Sensor *signal_rate_{nullptr};

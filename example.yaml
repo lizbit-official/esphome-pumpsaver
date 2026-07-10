@@ -27,7 +27,7 @@ wifi:
 
 external_components:
   # Pre-release fault/link features: track main until their release tag exists.
-  - source: github://lizbit-official/esphome-pumpsaver@v0.4.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.5.0
     components: [pumpsaver]
 
 # Field-proven receiver settings for the PumpSaver's baseband IR broadcast.
@@ -62,8 +62,12 @@ sensor:
       name: "Pump Current"
     power:
       name: "Pump Power"
-    power_factor:
-      name: "Pump Power Factor"
+    drywell_trip:
+      name: "Pump Dry-Well Trip Point"
+    restart_delay_set:
+      name: "Pump Restart Delay Setting"
+    restart_remaining:
+      name: "Pump Restart Countdown"
     pump_starts:
       name: "Pump Starts"
     run_minutes:

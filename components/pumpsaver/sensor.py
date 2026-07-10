@@ -26,12 +26,10 @@ from esphome.const import (
     CONF_CURRENT,
     ENTITY_CATEGORY_DIAGNOSTIC,
     CONF_POWER,
-    CONF_POWER_FACTOR,
     CONF_VOLTAGE,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_DURATION,
     DEVICE_CLASS_POWER,
-    DEVICE_CLASS_POWER_FACTOR,
     DEVICE_CLASS_VOLTAGE,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
@@ -46,6 +44,9 @@ from . import CONF_PUMPSAVER_ID, PumpSaver
 
 DEPENDENCIES = ["pumpsaver"]
 
+CONF_DRYWELL_TRIP = "drywell_trip"
+CONF_RESTART_DELAY_SET = "restart_delay_set"
+CONF_RESTART_REMAINING = "restart_remaining"
 CONF_PUMP_STARTS = "pump_starts"
 CONF_RUN_MINUTES = "run_minutes"
 CONF_LAST_FAULT_AT = "last_fault_at"
@@ -60,7 +61,8 @@ TYPES = {
     CONF_VOLTAGE: (0x11, 0.1),
     CONF_CURRENT: (0x12, 0.01),
     CONF_POWER: (0x10, 1.0),
-    CONF_POWER_FACTOR: (0x13, 0.001),
+    CONF_DRYWELL_TRIP: (0x13, 1.0),
+    CONF_RESTART_DELAY_SET: (0x14, 1.0),
     CONF_PUMP_STARTS: (0x0F, 1.0),
     CONF_RUN_MINUTES: (0x17, 1.0),
 }
@@ -87,10 +89,28 @@ NAMED_SCHEMA = cv.All(
                 device_class=DEVICE_CLASS_POWER,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
-            cv.Optional(CONF_POWER_FACTOR): sensor.sensor_schema(
-                accuracy_decimals=3,
-                device_class=DEVICE_CLASS_POWER_FACTOR,
-                state_class=STATE_CLASS_MEASUREMENT,
+            # Dry-well/underload trip point in watts (= SENSITIVITY knob x
+            # calibration power). Live-verified against the physical knob.
+            cv.Optional(CONF_DRYWELL_TRIP): sensor.sensor_schema(
+                unit_of_measurement=UNIT_WATT,
+                accuracy_decimals=0,
+                device_class=DEVICE_CLASS_POWER,
+                icon="mdi:speedometer-slow",
+            ),
+            # RESTART DELAY knob setting in minutes (the dial silkscreen is
+            # approximate; this register is the authoritative value).
+            cv.Optional(CONF_RESTART_DELAY_SET): sensor.sensor_schema(
+                unit_of_measurement=UNIT_MINUTE,
+                accuracy_decimals=0,
+                icon="mdi:timer-cog-outline",
+            ),
+            # Restart-delay countdown in seconds; 0 except during a trip
+            # lockout, when it counts down 1 s/s (computed from two registers).
+            cv.Optional(CONF_RESTART_REMAINING): sensor.sensor_schema(
+                unit_of_measurement=UNIT_SECOND,
+                accuracy_decimals=0,
+                device_class=DEVICE_CLASS_DURATION,
+                icon="mdi:timer-sand",
             ),
             cv.Optional(CONF_PUMP_STARTS): sensor.sensor_schema(
                 accuracy_decimals=0,
@@ -150,6 +170,7 @@ NAMED_SCHEMA = cv.All(
     ),
     cv.has_at_least_one_key(
         *TYPES,
+        CONF_RESTART_REMAINING,
         CONF_LAST_FAULT_AT,
         CONF_FAULT_SEQUENCE,
         CONF_LAST_SEEN,
@@ -187,6 +208,9 @@ async def to_code(config):
     if CONF_LAST_FAULT_AT in config:
         var = await sensor.new_sensor(config[CONF_LAST_FAULT_AT])
         cg.add(hub.set_last_fault_at_sensor(var))
+    if CONF_RESTART_REMAINING in config:
+        var = await sensor.new_sensor(config[CONF_RESTART_REMAINING])
+        cg.add(hub.set_restart_remaining_sensor(var))
     if CONF_FAULT_SEQUENCE in config:
         var = await sensor.new_sensor(config[CONF_FAULT_SEQUENCE])
         cg.add(hub.set_fault_sequence_sensor(var))

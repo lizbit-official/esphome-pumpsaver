@@ -29,7 +29,7 @@ between a GPIO and GND, then:
 
 ```yaml
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.4.0
+  - source: github://lizbit-official/esphome-pumpsaver@v0.5.0
     components: [pumpsaver]
 
 remote_receiver:
@@ -162,7 +162,9 @@ One hub (`pumpsaver:` with `receiver_id`) plus entities on three platforms:
 | `voltage` (sensor) | live line voltage | V, `voltage` | ~1.5 s, on change |
 | `current` (sensor) | live current ¹ | A, `current` | ~1.5 s, on change |
 | `power` (sensor) | live active power | W, `power` | ~1.5 s, on change |
-| `power_factor` (sensor) | live power factor | `power_factor` | ~1.5 s, on change |
+| `drywell_trip` (sensor) | dry-well trip point in watts (SENSITIVITY knob x cal power) ⁴ | W, `power` | on change (knob moves) |
+| `restart_delay_set` (sensor) | RESTART DELAY knob setting ⁴ | min | on change (knob moves) |
+| `restart_remaining` (sensor) | restart-lockout countdown | s, `duration` | 0 normally; 1 s/s during lockout |
 | `pump_starts` (sensor) | user-clearable device starts counter | `total_increasing` | on change |
 | `run_minutes` (sensor) | user-clearable device run-time counter | min, `total_increasing` | +1/min while pumping |
 | `last_fault_at` (sensor) | run-clock minutes of the newest fault | min | after two matching complete event generations, then on a confirmed ring shift |
@@ -191,6 +193,11 @@ Dry-well is a proven code name; `overcurrent?` / `voltage fault?` /
 Values are raw integers; scale with ESPHome `filters:`. The component strictly
 rejects addresses outside `0x01–0x75`; use `remote_receiver.on_raw` and the
 protocol CLI's relaxed mode when investigating a different address range.
+
+⁴ Live-verified 2026-07-09 by tracking the physical knobs on the wire. These
+read the knobs in real time, so they double as remote verification that a
+setting change took. Note: v0.5.0 removed the former `power_factor` option;
+register 0x13 turned out to be the dry-well trip point, not a power factor.
 
 Everything publishes on change only (the broadcast repeats every ~1.5 s for
 live values, ~5.8 s for the fault ring), so Home Assistant is not spammed.

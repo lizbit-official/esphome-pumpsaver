@@ -71,6 +71,9 @@ static bool parse_line(const std::string &line, std::vector<int32_t> *out) {
 
 static bool feed_ring_generation(FaultRing *ring, const std::map<uint8_t, uint16_t> &regs,
                                  int skip_reg = -1, int mutate_reg = -1) {
+  // Newest-fault condition latches come from the live block.
+  for (int reg = 0x04; reg <= 0x06; reg++)
+    ring->update_latch((uint8_t) reg, regs.at((uint8_t) reg));
   bool committed = false;
   for (int reg = PS_REG_FAULT_FIRST; reg <= PS_REG_FAULT_LAST; reg++) {
     if (reg == skip_reg)
@@ -178,6 +181,7 @@ int main(int argc, char **argv) {
       } else {
         regs[w.reg] = w.value;
         ring.update(w.reg, w.value);
+        ring.update_latch(w.reg, w.value);
       }
     }
   }
@@ -210,8 +214,10 @@ int main(int argc, char **argv) {
               fault_code_name(nf.code), nf.watts, nf.volts_x10, nf.amps_x100,
               (unsigned) nf.at_minutes);
   CHECK(nf.code == 4, "newest fault code == 4");
-  CHECK(nf.watts == 774 && nf.volts_x10 == 2417 && nf.amps_x100 == 570,
-        "newest fault snapshot == (774 W, 2417, 570)");
+  // Newest-fault conditions come from the 0x04/0x05/0x06 latches: the code-4
+  // fault's true conditions are W=0, V=211.2, A=0 (pump never ran).
+  CHECK(nf.watts == 0 && nf.volts_x10 == 2112 && nf.amps_x100 == 0,
+        "newest fault conditions == (0 W, 2112, 0) from the latches");
   CHECK(nf.at_minutes == 32572, "newest fault at run-clock 32572 min");
   char clock[24];
   format_run_clock(nf.at_minutes, clock, sizeof(clock));

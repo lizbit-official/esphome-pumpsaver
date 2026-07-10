@@ -39,6 +39,12 @@ static constexpr uint16_t PS_SYNC_VALUE = 0xAAAA;
 
 // Well-known registers (see registers.json in the protocol repo)
 static constexpr uint8_t PS_REG_PUMP_STARTS = 0x0F;
+static constexpr uint8_t PS_REG_FAULT_AMPS = 0x04;    // newest-fault latches (live block)
+static constexpr uint8_t PS_REG_FAULT_VOLTS = 0x05;
+static constexpr uint8_t PS_REG_FAULT_WATTS = 0x06;
+static constexpr uint8_t PS_REG_RESTART_SET = 0x14;   // restart delay setting, minutes
+static constexpr uint8_t PS_REG_RESTART_HI = 0x15;    // countdown: (hi<<16|lo)/256 seconds
+static constexpr uint8_t PS_REG_RESTART_LO = 0x16;
 static constexpr uint8_t PS_REG_POWER = 0x10;
 static constexpr uint8_t PS_REG_VOLTAGE = 0x11;      // volts x10
 static constexpr uint8_t PS_REG_CURRENT = 0x12;      // amps x100
@@ -237,7 +243,13 @@ inline void format_run_clock(uint32_t minutes, char *buf, size_t len) {
   snprintf(buf, len, "%ud %uh %um", d, h, m);
 }
 
-/// Collects complete fault-ring generations as they arrive (~every 5.8 s).
+/// Collects complete fault-ring generations as they arrive (~every 5.8 s), and
+/// the newest-fault condition latches (0x04/0x05/0x06) from the live block.
+///
+/// Ring architecture (spec v0.3, observed live): the NEWEST fault's A/V/W live
+/// in the latches; ring snapshot slots hold faults #2..#20 and receive the
+/// latch contents when the next fault occurs. newest() therefore reads its
+/// conditions from the latches and its code/timestamp from the ring.
 ///
 /// A generation is accepted only when all 0x19..0x75 registers arrive in order.
 /// Register 0x75 is required as the terminator, but its meaning is unresolved,
@@ -294,8 +306,18 @@ class FaultRing {
     return true;
   }
 
-  /// True once two complete generations with matching event fields have been observed.
-  bool ready() const { return this->committed_valid_; }
+  /// Feed a newest-fault latch register (0x04/0x05/0x06) from the live block.
+  void update_latch(uint8_t reg, uint16_t value) {
+    if (reg < PS_REG_FAULT_AMPS || reg > PS_REG_FAULT_WATTS)
+      return;
+    const int i = reg - PS_REG_FAULT_AMPS;
+    this->latch_[i] = value;
+    this->latch_seen_ |= 1 << i;
+  }
+
+  /// True once two complete generations with matching event fields have been
+  /// observed and all three condition latches have been seen.
+  bool ready() const { return this->committed_valid_ && this->latch_seen_ == 0x7; }
 
   /// Drop any unconfirmed work after a receiver outage. The last committed
   /// generation remains readable, but reconnection must provide two fresh,
@@ -306,13 +328,14 @@ class FaultRing {
     this->next_index_ = 0;
   }
 
-  /// The newest (index 0) fault record. Only valid when ready().
+  /// The newest fault: code + timestamp from the ring, conditions from the
+  /// live latches. Only valid when ready().
   FaultInfo newest() const {
     FaultInfo f;
     f.code = (uint8_t) (this->get(0x19) >> 12);  // first packed nibble
-    f.watts = this->get(0x1E);
-    f.volts_x10 = this->get(0x1F);
-    f.amps_x100 = this->get(0x20);
+    f.amps_x100 = this->latch_[0];
+    f.volts_x10 = this->latch_[1];
+    f.watts = this->latch_[2];
     // Timestamp 0 = first 3 bytes of the big-endian byte stream of 0x57..0x74.
     uint16_t r0 = this->get(0x57), r1 = this->get(0x58);
     f.at_minutes = (((uint32_t) r0) << 8) | (r1 >> 8);
@@ -336,6 +359,8 @@ class FaultRing {
   std::array<uint16_t, PS_FAULT_REG_COUNT> staging_{};
   std::array<uint16_t, PS_FAULT_REG_COUNT> candidate_{};
   std::array<uint16_t, PS_FAULT_REG_COUNT> committed_{};
+  uint16_t latch_[3] = {0, 0, 0};  // 0x04 amps, 0x05 volts, 0x06 watts
+  uint8_t latch_seen_{0};
   size_t next_index_{0};
   bool collecting_{false};
   bool candidate_valid_{false};

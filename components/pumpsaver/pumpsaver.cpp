@@ -67,6 +67,23 @@ void PumpSaver::handle_word_(uint8_t reg, uint16_t value) {
     }
   }
 #endif
+  // Newest-fault condition latches and the restart countdown live in the
+  // live block and update every ~1.5 s.
+  this->ring_.update_latch(reg, value);
+#ifdef USE_SENSOR
+  if (reg == PS_REG_RESTART_HI || reg == PS_REG_RESTART_LO) {
+    const int half = reg == PS_REG_RESTART_HI ? 1 : 0;
+    const uint32_t updated = half ? ((uint32_t) value << 16) | (this->restart_raw_ & 0xFFFF)
+                                  : (this->restart_raw_ & 0xFFFF0000UL) | value;
+    this->restart_seen_ |= 1 << half;
+    if (this->restart_remaining_ != nullptr && this->restart_seen_ == 0x3 &&
+        (updated != this->restart_raw_ || !this->restart_published_)) {
+      this->restart_published_ = true;
+      this->restart_remaining_->publish_state(updated / 256.0f);
+    }
+    this->restart_raw_ = updated;
+  }
+#endif
   // Fault-history ring: update() commits only after two complete 0x19..0x75
   // generations have matching 0x19..0x74 event data. A returned change
   // therefore cannot be a torn ring or an unresolved trailer-only change.
