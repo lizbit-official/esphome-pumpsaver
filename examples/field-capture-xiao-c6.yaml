@@ -1,0 +1,102 @@
+# Field-research configuration: Seeed Studio XIAO ESP32-C6 monitoring a
+# PumpSaver AND dumping every raw IR frame to MQTT for protocol work.
+#
+# Use this when you want to contribute captures to the protocol repo
+# (https://github.com/lizbit-official/pumpsaver-ir-protocol) while still
+# getting live Home Assistant entities. For monitoring only, the simpler
+# ../example.yaml is enough.
+#
+# Hardware: bare IR phototransistor (see README) on pad D1 / GPIO1.
+# Collect frames with:  mosquitto_sub -t pumpsaver/ir/raw > capture.ndjson
+
+esphome:
+  name: pumpsaver-field
+  friendly_name: PumpSaver Field Monitor
+  min_version: 2025.9.0
+
+esp32:
+  board: seeed_xiao_esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Raw-frame dump for protocol analysis; coexists with the native API.
+mqtt:
+  broker: !secret mqtt_broker
+  discovery: false
+  reboot_timeout: 0s   # never reboot over a broker outage; API is the primary link
+
+external_components:
+  - source: github://lizbit-official/esphome-pumpsaver@v0.4.0
+    components: [pumpsaver]
+
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO1        # XIAO pad D1
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  filter: 10us
+  idle: 40ms
+  clock_resolution: 500000   # allows idle > 32 ms on C6-class RMT
+  buffer_size: 32kb
+  tolerance: 45%
+  receive_symbols: 2048
+  on_raw:
+    then:
+      # Publish every captured frame as one NDJSON line, the format the
+      # protocol repo's reference decoder consumes directly. ts is device
+      # uptime in ms; note wall-clock times of any experiments separately.
+      - mqtt.publish:
+          topic: pumpsaver/ir/raw
+          payload: !lambda |-
+            std::string payload = "{\"ts\":" + to_string(millis()) +
+                                  ",\"len\":" + to_string(x.size()) + ",\"data\":[";
+            for (size_t i = 0; i < x.size(); i++) {
+              if (i) payload += ",";
+              payload += to_string(x[i]);
+            }
+            payload += "]}";
+            return payload;
+
+pumpsaver:
+  receiver_id: ir_rx
+  link_timeout: 10s
+
+sensor:
+  - platform: pumpsaver
+    voltage: { name: "Pump Voltage" }
+    current: { name: "Pump Current" }
+    power: { name: "Pump Power" }
+    power_factor: { name: "Pump Power Factor" }
+    pump_starts: { name: "Pump Starts" }
+    run_minutes: { name: "Pump Run Time" }
+    last_fault_at: { name: "Pump Last Fault At" }
+    fault_sequence: { name: "Pump Fault Sequence" }
+    last_seen: { name: "PumpSaver Last Seen Age" }
+    signal_rate: { name: "PumpSaver Signal Rate" }
+    decode_errors: { name: "PumpSaver Decode Errors" }
+
+text_sensor:
+  - platform: pumpsaver
+    last_fault: { name: "Pump Last Fault" }
+
+binary_sensor:
+  - platform: pumpsaver
+    name: "Pump Running"
+    threshold: 200
+
+  - platform: pumpsaver
+    link_ok: { name: "PumpSaver Link" }

@@ -351,6 +351,8 @@ remote_receiver:
 Collect with `mosquitto_sub -t pumpsaver/ir/raw > capture.ndjson` and file it
 via the protocol repo's
 [capture form](https://github.com/lizbit-official/pumpsaver-ir-protocol/issues/new?template=01-submit-capture.yml).
+A complete, validated field-research config (XIAO ESP32-C6, all entities plus
+the raw dump) is [`examples/field-capture-xiao-c6.yaml`](examples/field-capture-xiao-c6.yaml).
 
 ## License
 
