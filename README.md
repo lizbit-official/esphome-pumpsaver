@@ -6,10 +6,11 @@ Nothing is wired to the relay, and nothing is transmitted.
 
 PumpSaver relays constantly broadcast their internal state over infrared,
 meant for SymCom's discontinued *Informer* handheld: live **volts / amps /
-watts / power factor**, user-clearable **pump-start** and **run-time** counters, and
-the **last-20-faults history**. This component decodes the broadcast passively
-and publishes it all, including a fault notifier the original tooling never
-had.
+watts**, the **dry-well trip point** and **restart-delay** knob settings, the
+live **restart countdown** during a lockout, user-clearable **pump-start** and
+**run-time** counters, and the **last-20-faults history**. This component
+decodes the broadcast passively and publishes it all, including a fault
+notifier the original tooling never had.
 
 Tested on a **233P-1.5** (the 1.5 hp variant of the 233-P). The same hardware ships rebranded as **Pentek /
 Pentair SPP-233P / SPP-235P / SD-F30x** (also sold under Berkeley, Myers and
@@ -19,7 +20,11 @@ The wire format was reverse engineered and verified in the companion
 repo; [PROTOCOL.md](https://github.com/lizbit-official/pumpsaver-ir-protocol/blob/main/PROTOCOL.md)
 has the full specification.
 
-<!-- TODO: photo of the phototransistor mounted at the relay + HA dashboard -->
+<p align="center">
+  <img src="docs/xiao-c6-at-pumpsaver.jpg" width="420" alt="A Seeed XIAO ESP32-C6 on a scrap of protoboard, its bare IR phototransistor resting in the PumpSaver faceplate window labeled POINT INFORMER HERE">
+</p>
+<p align="center"><em>The whole install: a XIAO ESP32-C6 and a bare phototransistor,
+pointed where the faceplate says "POINT INFORMER HERE".</em></p>
 
 ## Quick start
 
@@ -66,12 +71,15 @@ Flash it, open the device page, and **move the phototransistor until
 `Signal Rate` reads ~40 words/s**. That is a perfect view of the broadcast,
 and entities update within seconds.
 
-The fault/link features shown here are currently pre-release, so the example
-tracks `@main`. Pin the corresponding release tag once they are released.
+The complete config with every entity (current, trip points, restart
+countdown, run time, fault history, diagnostics, raw registers, pump-running
+binary sensor) is [`example.yaml`](example.yaml). Here is the full set live
+on the development XIAO C6, minutes after a deliberately induced dry-well
+trip (ESPHome's built-in web UI; the same entities appear in Home Assistant):
 
-The complete config with every entity (current, power factor, run time, fault
-history, diagnostics, raw registers, pump-running binary sensor) is
-[`example.yaml`](example.yaml).
+<p align="center">
+  <img src="docs/web-ui.png" width="560" alt="ESPHome web UI listing every PumpSaver entity live: voltage, current, power, dry-well trip point, restart delay and countdown, pump starts, run time, and the decoded last fault with its latched conditions">
+</p>
 
 ## Hardware
 
@@ -143,6 +151,14 @@ and wired to pull the GPIO low with the internal pull-up as the load (hence
 Two-pin phototransistors are easy to wire backwards. Reversed polarity is
 harmless at 3.3 V but reads nothing: **if you get zero signal, swap the two
 legs first.**
+
+The development installation, in full. Two wires from the XIAO to the
+phototransistor, which simply rests in the faceplate window; there is nothing
+else:
+
+<p align="center">
+  <img src="docs/phototransistor-closeup.jpg" width="420" alt="Closeup of the SFH 309 FA phototransistor resting in the PumpSaver's Informer window, wired to a XIAO ESP32-C6 on protoboard">
+</p>
 
 ### Placement
 
