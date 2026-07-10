@@ -83,7 +83,11 @@ history, diagnostics, raw registers, pump-running binary sensor) is
   and C6, field-proven on an S3. Two porting notes for C3/C6: the RMT idle
   limit is 32767 µs at the default clock (use `idle: 30ms` or add
   `clock_resolution: 500000`), and they have fewer pins (C6: GPIO0-23), so
-  adjust the example's GPIO27.
+  adjust the example's GPIO27. On the **Seeed XIAO ESP32-C6** specifically,
+  drive the antenna RF switch at boot (GPIO3 low; GPIO14 low for the internal
+  antenna, high for external; see
+  [`examples/field-capture-xiao-c6.yaml`](examples/field-capture-xiao-c6.yaml))
+  or WiFi range is severely degraded.
 - ESP8266 is untested and not recommended (no RMT; software capture may drop
   the 100 µs pulses).
 
