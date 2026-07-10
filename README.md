@@ -11,7 +11,7 @@ the **last-20-faults history**. This component decodes the broadcast passively
 and publishes it all, including a fault notifier the original tooling never
 had.
 
-Tested on the **233-P**. The same hardware ships rebranded as **Pentek /
+Tested on a **233P-1.5** (the 1.5 hp variant of the 233-P). The same hardware ships rebranded as **Pentek /
 Pentair SPP-233P / SPP-235P / SD-F30x** (also sold under Berkeley, Myers and
 Sta-Rite labels) and as **Goulds / CentriPro "PumpSaver by SymCom"** units.
 The wire format was reverse engineered and verified in the companion
@@ -316,7 +316,7 @@ a few volts at the instant of pump inrush.)
 - **All values come from the relay's own metering.** This component adds no
   measurement of its own; accuracy is whatever the relay's calibration gives
   you.
-- Tested against the **233-P** only. Other Informer-era models (231-P Insider,
+- Tested against a **233P-1.5** only. Other Informer-era models (233-P, 231-P Insider,
   233-1.5-P, 234-P, 235P, 236-P, 111P and the Pentek / Goulds rebrands) very
   likely share the framing but may map registers differently. The generic
   `register:` sensor is your friend there, and captures are very welcome

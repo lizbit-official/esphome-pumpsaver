@@ -1,5 +1,5 @@
 # Complete example: ESP32 + bare IR phototransistor watching a
-# SymCom / Littelfuse PumpSaver Plus (tested on the 233-P).
+# SymCom / Littelfuse PumpSaver Plus (tested on a 233P-1.5).
 #
 # See README.md for hardware notes — in particular: you need a BARE
 # phototransistor/photodiode, NOT a TSOP-style 38 kHz IR receiver.
