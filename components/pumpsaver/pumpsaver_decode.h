@@ -17,6 +17,7 @@
 //     (right-pad to 32 bits).
 //   - Sync word 0x90FFAAAA precedes every 4 data words.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -31,6 +32,8 @@ static constexpr int32_t PS_SEPARATOR_US = 8000; // inter-word idle threshold
 static constexpr int PS_WORD_BITS = 32;
 static constexpr int PS_MAX_RUN = 28;            // a run never spans more than the 28 bits after the fixed '1001' prefix
 static constexpr uint8_t PS_HEADER = 0x90;
+static constexpr uint8_t PS_DATA_REG_FIRST = 0x01;
+static constexpr uint8_t PS_DATA_REG_LAST = 0x75;
 static constexpr uint8_t PS_SYNC_REG = 0xFF;
 static constexpr uint16_t PS_SYNC_VALUE = 0xAAAA;
 
@@ -57,14 +60,23 @@ inline bool decode_burst(const int32_t *pulses, size_t n_pulses, bool idle_posit
     return false;
   uint32_t word = 0;
   int total = 0;
+  bool previous_positive = false;
   for (size_t i = 0; i < n_pulses; i++) {
     int32_t t = pulses[i];
     if (t == 0)
       return false;
-    bool is_idle = (t > 0) == idle_positive;
-    int32_t width = t < 0 ? -t : t;
+    const bool positive = t > 0;
+    if (i > 0 && positive == previous_positive)
+      return false;  // physical level runs must alternate signs
+    previous_positive = positive;
+    bool is_idle = positive == idle_positive;
+    if (i == 0 && is_idle)
+      return false;  // every protocol word begins with the active '1' header
+    // Promote before negation: -INT32_MIN is not representable as int32_t and
+    // would otherwise be undefined behaviour on a corrupt capture.
+    int64_t width = t < 0 ? -static_cast<int64_t>(t) : static_cast<int64_t>(t);
     // n = round((width +/- half_bit) / bit): idle pulses read short, active read long
-    int32_t adjusted = is_idle ? width + PS_HALF_BIT_US : width - PS_HALF_BIT_US;
+    int64_t adjusted = is_idle ? width + PS_HALF_BIT_US : width - PS_HALF_BIT_US;
     int n = (int) ((adjusted + PS_BIT_US / 2) / PS_BIT_US);
     if (n < 1 || n > PS_MAX_RUN)
       return false;  // implausible run
@@ -78,10 +90,43 @@ inline bool decode_burst(const int32_t *pulses, size_t n_pulses, bool idle_posit
   word <<= (PS_WORD_BITS - total);    // right-pad the omitted trailing zeros
   if ((word >> 24) != PS_HEADER)
     return false;  // bad header
-  out->reg = (uint8_t) ((word >> 16) & 0xFF);
-  out->value = (uint16_t) (word & 0xFFFF);
+  const uint8_t reg = (uint8_t) ((word >> 16) & 0xFF);
+  const uint16_t value = (uint16_t) (word & 0xFFFF);
+  // Normal operation accepts only the observed data range and the exact sync
+  // marker. In particular, the four-bit 0x9 header-shaped noise burst pads to
+  // reg 0 and must not make this listener claim an unrelated IR frame.
+  if (reg == PS_SYNC_REG) {
+    if (value != PS_SYNC_VALUE)
+      return false;
+  } else if (reg < PS_DATA_REG_FIRST || reg > PS_DATA_REG_LAST) {
+    return false;
+  }
+  out->reg = reg;
+  out->value = value;
   return true;
 }
+
+/// Extend ESPHome's wrapping 32-bit millis() value into a monotonic 64-bit
+/// elapsed time. Call update() regularly (at least once per 2^32 ms); normal
+/// component loop cadence is many orders of magnitude faster than that.
+class MonotonicMillis {
+ public:
+  uint64_t update(uint32_t raw_ms) {
+    if (!this->initialized_) {
+      this->last_raw_ms_ = raw_ms;
+      this->initialized_ = true;
+      return 0;
+    }
+    this->elapsed_ms_ += static_cast<uint32_t>(raw_ms - this->last_raw_ms_);
+    this->last_raw_ms_ = raw_ms;
+    return this->elapsed_ms_;
+  }
+
+ protected:
+  uint64_t elapsed_ms_{0};
+  uint32_t last_raw_ms_{0};
+  bool initialized_{false};
+};
 
 /// Detect capture polarity: the inter-word separators (>8 ms) always sit at the
 /// idle level, so their sign identifies it regardless of receiver wiring.
@@ -149,8 +194,8 @@ inline size_t decode_capture(const std::vector<int32_t> &data, std::vector<Decod
 // ---------------------------------------------------------------------------
 
 static constexpr uint8_t PS_REG_FAULT_FIRST = 0x19;
-static constexpr uint8_t PS_REG_FAULT_LAST = 0x75;
-static constexpr uint8_t PS_REG_FAULT_TS_END = 0x74;  // last register of a ring refresh cycle
+static constexpr uint8_t PS_REG_FAULT_LAST = PS_DATA_REG_LAST;
+static constexpr size_t PS_FAULT_REG_COUNT = PS_REG_FAULT_LAST - PS_REG_FAULT_FIRST + 1;
 
 struct FaultInfo {
   uint8_t code;
@@ -192,27 +237,73 @@ inline void format_run_clock(uint32_t minutes, char *buf, size_t len) {
   snprintf(buf, len, "%ud %uh %um", d, h, m);
 }
 
-/// Accumulates fault-ring registers as they arrive (~every 5.8 s) and exposes the
-/// newest fault record. Pure logic — host-testable.
+/// Collects complete fault-ring generations as they arrive (~every 5.8 s).
+///
+/// A generation is accepted only when all 0x19..0x75 registers arrive in order.
+/// Register 0x75 is required as the terminator, but its meaning is unresolved,
+/// so only the event-bearing 0x19..0x74 fields participate in equality. A
+/// generation is committed only after those fields match in the next complete
+/// generation. This prevents a ring shift partway through a scan from combining
+/// old codes/snapshots with new timestamps. Comparing the complete event data,
+/// rather than only newest(), also detects two otherwise-identical faults in the
+/// same run-clock minute. Pure logic — host-testable.
 class FaultRing {
  public:
-  /// Feed one register word. Returns true iff it belonged to the ring AND changed
-  /// a stored value (i.e. first sighting or a real ring shift).
+  /// Feed one register word. Returns true only when a new, stable, complete
+  /// generation has been committed (including the initial generation).
   bool update(uint8_t reg, uint16_t value) {
     if (reg < PS_REG_FAULT_FIRST || reg > PS_REG_FAULT_LAST)
       return false;
-    int idx = reg - PS_REG_FAULT_FIRST;
-    if (this->have_[idx] && this->regs_[idx] == value)
+
+    const size_t idx = reg - PS_REG_FAULT_FIRST;
+    if (reg == PS_REG_FAULT_FIRST) {
+      // A new 0x19 before the previous generation reached 0x75 proves that the
+      // preceding candidate was not followed by a complete adjacent refresh.
+      if (this->collecting_)
+        this->candidate_valid_ = false;
+      this->collecting_ = true;
+      this->next_index_ = 1;
+      this->staging_[0] = value;
       return false;
-    this->regs_[idx] = value;
-    this->have_[idx] = true;
+    }
+
+    if (!this->collecting_ || idx != this->next_index_) {
+      // A missing, duplicate, or out-of-order ring word makes this generation
+      // incoherent. It must not help confirm an earlier candidate.
+      this->collecting_ = false;
+      this->candidate_valid_ = false;
+      return false;
+    }
+
+    this->staging_[idx] = value;
+    this->next_index_++;
+    if (reg != PS_REG_FAULT_LAST)
+      return false;
+
+    this->collecting_ = false;
+    if (!this->candidate_valid_ || !event_equal_(this->candidate_, this->staging_)) {
+      this->candidate_ = this->staging_;
+      this->candidate_valid_ = true;
+      return false;  // require one more complete generation with matching event fields
+    }
+
+    if (this->committed_valid_ && event_equal_(this->committed_, this->staging_))
+      return false;
+    this->committed_ = this->staging_;
+    this->committed_valid_ = true;
     return true;
   }
 
-  /// True once every register needed by newest() has been seen.
-  bool ready() const {
-    return this->have(0x19) && this->have(0x1E) && this->have(0x1F) && this->have(0x20) &&
-           this->have(0x57) && this->have(0x58);
+  /// True once two complete generations with matching event fields have been observed.
+  bool ready() const { return this->committed_valid_; }
+
+  /// Drop any unconfirmed work after a receiver outage. The last committed
+  /// generation remains readable, but reconnection must provide two fresh,
+  /// complete generations before another change can be committed.
+  void discard_pending() {
+    this->collecting_ = false;
+    this->candidate_valid_ = false;
+    this->next_index_ = 0;
   }
 
   /// The newest (index 0) fault record. Only valid when ready().
@@ -229,11 +320,26 @@ class FaultRing {
   }
 
  protected:
-  bool have(uint8_t reg) const { return this->have_[reg - PS_REG_FAULT_FIRST]; }
-  uint16_t get(uint8_t reg) const { return this->regs_[reg - PS_REG_FAULT_FIRST]; }
+  static bool event_equal_(const std::array<uint16_t, PS_FAULT_REG_COUNT> &a,
+                           const std::array<uint16_t, PS_FAULT_REG_COUNT> &b) {
+    // The final element is unresolved register 0x75. It terminates a complete
+    // generation but is not known to describe a fault event.
+    for (size_t i = 0; i + 1 < PS_FAULT_REG_COUNT; i++) {
+      if (a[i] != b[i])
+        return false;
+    }
+    return true;
+  }
 
-  uint16_t regs_[PS_REG_FAULT_LAST - PS_REG_FAULT_FIRST + 1] = {0};
-  bool have_[PS_REG_FAULT_LAST - PS_REG_FAULT_FIRST + 1] = {false};
+  uint16_t get(uint8_t reg) const { return this->committed_[reg - PS_REG_FAULT_FIRST]; }
+
+  std::array<uint16_t, PS_FAULT_REG_COUNT> staging_{};
+  std::array<uint16_t, PS_FAULT_REG_COUNT> candidate_{};
+  std::array<uint16_t, PS_FAULT_REG_COUNT> committed_{};
+  size_t next_index_{0};
+  bool collecting_{false};
+  bool candidate_valid_{false};
+  bool committed_valid_{false};
 };
 
 }  // namespace pumpsaver

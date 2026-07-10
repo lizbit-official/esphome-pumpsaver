@@ -26,7 +26,8 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://lizbit-official/esphome-pumpsaver@v0.3.0
+  # Pre-release fault/link features: track main until their release tag exists.
+  - source: github://lizbit-official/esphome-pumpsaver@v0.4.0
     components: [pumpsaver]
 
 # Field-proven receiver settings for the PumpSaver's baseband IR broadcast.
@@ -51,6 +52,7 @@ remote_receiver:
 
 pumpsaver:
   receiver_id: ir_rx
+  link_timeout: 10s  # live/running entities become unavailable after IR silence
 
 sensor:
   - platform: pumpsaver
@@ -77,12 +79,15 @@ sensor:
     filters:
       - multiply: 0.1
 
-  # Fault history (ring decoded in protocol spec v0.2): run-clock minutes of
-  # the newest fault. Changes only when a new fault is logged - ideal as an
-  # automation trigger.
+  # Fault history (ring decoded in protocol spec v0.2). fault_sequence is the
+  # automation trigger: details are published first, then this boot-local value
+  # increments after two matching complete generations. Initial acquisition is
+  # a quiet baseline (roughly 2-3 cycles); rapid unqualified changes can coalesce.
   - platform: pumpsaver
     last_fault_at:
       name: "Pump Last Fault At"
+    fault_sequence:
+      name: "Pump Fault Sequence"
 
   # Diagnostics (land in the HA device page's Diagnostics section).
   # A healthy, well-aimed sensor reads ~40 words/s; see README troubleshooting.
@@ -91,6 +96,8 @@ sensor:
       name: "PumpSaver Signal Rate"
     decode_errors:
       name: "PumpSaver Decode Errors"
+    last_seen:
+      name: "PumpSaver Last Seen Age"
 
 text_sensor:
   - platform: pumpsaver
@@ -101,3 +108,7 @@ binary_sensor:
   - platform: pumpsaver
     name: "Pump Running"
     threshold: 200  # watts; idle self-draw is ~26 W, running ~820 W
+
+  - platform: pumpsaver
+    link_ok:
+      name: "PumpSaver Link"

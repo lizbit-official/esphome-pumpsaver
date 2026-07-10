@@ -11,7 +11,7 @@ Two forms:
         current:
           name: "Pump Current"
 
-2. Advanced: expose any raw 16-bit register value:
+2. Advanced: expose any known raw 16-bit register value (0x01-0x75):
 
     sensor:
       - platform: pumpsaver
@@ -37,6 +37,7 @@ from esphome.const import (
     STATE_CLASS_TOTAL_INCREASING,
     UNIT_AMPERE,
     UNIT_MINUTE,
+    UNIT_SECOND,
     UNIT_VOLT,
     UNIT_WATT,
 )
@@ -48,6 +49,8 @@ DEPENDENCIES = ["pumpsaver"]
 CONF_PUMP_STARTS = "pump_starts"
 CONF_RUN_MINUTES = "run_minutes"
 CONF_LAST_FAULT_AT = "last_fault_at"
+CONF_FAULT_SEQUENCE = "fault_sequence"
+CONF_LAST_SEEN = "last_seen"
 CONF_SIGNAL_RATE = "signal_rate"
 CONF_DECODE_ERRORS = "decode_errors"
 CONF_REGISTER = "register"
@@ -102,11 +105,30 @@ NAMED_SCHEMA = cv.All(
                 icon="mdi:timer-outline",
             ),
             # Run-clock minutes (same unit as run_minutes) at which the newest
-            # fault-history record was logged; changes only when a new fault lands.
+            # confirmed fault-history record was logged.
             cv.Optional(CONF_LAST_FAULT_AT): sensor.sensor_schema(
                 unit_of_measurement=UNIT_MINUTE,
                 accuracy_decimals=0,
                 icon="mdi:alert-circle-check-outline",
+            ),
+            # Local event sequence: baseline is 0 after two matching complete
+            # event generations, then increments once per committed non-zero
+            # change. It distinguishes same-minute faults only when each ring
+            # state remains stable long enough to be confirmed; rapid changes
+            # can coalesce.
+            cv.Optional(CONF_FAULT_SEQUENCE): sensor.sensor_schema(
+                accuracy_decimals=0,
+                icon="mdi:alert-box-outline",
+            ),
+            # Seconds since the last valid PumpSaver word; diagnostic link age,
+            # not a wall-clock timestamp (the component has no time dependency).
+            cv.Optional(CONF_LAST_SEEN): sensor.sensor_schema(
+                unit_of_measurement=UNIT_SECOND,
+                accuracy_decimals=0,
+                device_class=DEVICE_CLASS_DURATION,
+                state_class=STATE_CLASS_MEASUREMENT,
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                icon="mdi:timer-sand",
             ),
             # Diagnostics: decoded words/second (a healthy full view of the
             # broadcast is ~40/s) and bad bursts per minute. Published every ~30 s.
@@ -126,15 +148,23 @@ NAMED_SCHEMA = cv.All(
             ),
         }
     ),
-    cv.has_at_least_one_key(*TYPES, CONF_LAST_FAULT_AT, CONF_SIGNAL_RATE, CONF_DECODE_ERRORS),
+    cv.has_at_least_one_key(
+        *TYPES,
+        CONF_LAST_FAULT_AT,
+        CONF_FAULT_SEQUENCE,
+        CONF_LAST_SEEN,
+        CONF_SIGNAL_RATE,
+        CONF_DECODE_ERRORS,
+    ),
 )
 
 REGISTER_SCHEMA = sensor.sensor_schema(accuracy_decimals=0).extend(
     {
         cv.GenerateID(CONF_PUMPSAVER_ID): cv.use_id(PumpSaver),
-        # Known registers are 0x01-0x75; allow the full addressable range for
-        # protocol exploration on other models (0xFF is the sync word).
-        cv.Required(CONF_REGISTER): cv.All(cv.hex_int, cv.int_range(min=0x01, max=0xFE)),
+        # Strict component decoding accepts the observed data range only. Use
+        # remote_receiver.on_raw plus the protocol CLI's relaxed mode when
+        # exploring a model that may transmit another address range.
+        cv.Required(CONF_REGISTER): cv.All(cv.hex_int, cv.int_range(min=0x01, max=0x75)),
     }
 )
 
@@ -157,6 +187,12 @@ async def to_code(config):
     if CONF_LAST_FAULT_AT in config:
         var = await sensor.new_sensor(config[CONF_LAST_FAULT_AT])
         cg.add(hub.set_last_fault_at_sensor(var))
+    if CONF_FAULT_SEQUENCE in config:
+        var = await sensor.new_sensor(config[CONF_FAULT_SEQUENCE])
+        cg.add(hub.set_fault_sequence_sensor(var))
+    if CONF_LAST_SEEN in config:
+        var = await sensor.new_sensor(config[CONF_LAST_SEEN])
+        cg.add(hub.set_last_seen_sensor(var))
     if CONF_SIGNAL_RATE in config:
         var = await sensor.new_sensor(config[CONF_SIGNAL_RATE])
         cg.add(hub.set_signal_rate_sensor(var))

@@ -1,0 +1,3 @@
+# ESPHome compile output generated from tests/ci.yaml.
+/.esphome/
+/secrets.yaml

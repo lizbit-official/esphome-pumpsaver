@@ -1,0 +1,85 @@
+# Compile-only configuration used by .github/workflows/ci.yml.
+# Command-line substitutions select the board and a valid receiver pin.
+substitutions:
+  board: esp32dev
+  receiver_pin: GPIO27
+
+esphome:
+  name: pumpsaver-ci
+  min_version: 2025.9.0
+
+esp32:
+  board: ${board}
+  framework:
+    type: esp-idf
+
+logger:
+
+# Use the pull request's component code, not a previously released Git tag.
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [pumpsaver]
+
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: ${receiver_pin}
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  filter: 10us
+  idle: 40ms
+  clock_resolution: 500000
+  buffer_size: 32kb
+  tolerance: 45%
+  receive_symbols: 2048
+
+pumpsaver:
+  receiver_id: ir_rx
+  link_timeout: 12s
+
+sensor:
+  - platform: pumpsaver
+    voltage:
+      name: Pump Voltage
+    current:
+      name: Pump Current
+    power:
+      name: Pump Power
+    power_factor:
+      name: Pump Power Factor
+    pump_starts:
+      name: Pump Starts
+    run_minutes:
+      name: Pump Run Time
+    last_fault_at:
+      name: Pump Last Fault At
+    fault_sequence:
+      name: Pump Fault Sequence
+    last_seen:
+      name: PumpSaver Last Seen
+    signal_rate:
+      name: PumpSaver Signal Rate
+    decode_errors:
+      name: PumpSaver Decode Errors
+
+  - platform: pumpsaver
+    register: 0x02
+    name: PumpSaver Raw Register
+
+text_sensor:
+  - platform: pumpsaver
+    last_fault:
+      name: Pump Last Fault
+
+binary_sensor:
+  - platform: pumpsaver
+    name: Pump Running
+    threshold: 200
+
+  - platform: pumpsaver
+    link_ok:
+      name: PumpSaver Link

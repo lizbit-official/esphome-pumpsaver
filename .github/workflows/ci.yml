@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROTOCOL_FIXTURE_REVISION: b9d2058899e106494dcb5551620a34de2e8f3b1d
+
+jobs:
+  host-decoder:
+    name: Host decoder (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out component
+        uses: actions/checkout@v7
+      - name: Check out pinned public protocol fixture
+        uses: actions/checkout@v7
+        with:
+          repository: lizbit-official/pumpsaver-ir-protocol
+          ref: ${{ env.PROTOCOL_FIXTURE_REVISION }}
+          path: protocol-fixture
+      - name: Build host test with sanitizers
+        run: >-
+          g++ -std=c++11 -O1 -g -Wall -Wextra -Wpedantic -Werror
+          -fsanitize=address,undefined -fno-omit-frame-pointer
+          -o /tmp/pumpsaver-decoder-test tests/test_decoder.cpp
+      - name: Run host test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: /tmp/pumpsaver-decoder-test protocol-fixture/examples/sample_capture.ndjson
+
+  esphome:
+    name: ESPHome ${{ matrix.esphome_version }} / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ESP32 (declared minimum)
+            esphome_version: "2025.9.0"
+            board: esp32dev
+            receiver_pin: GPIO27
+          - name: ESP32
+            esphome_version: "2026.5.1"
+            board: esp32dev
+            receiver_pin: GPIO27
+          - name: ESP32-C6
+            esphome_version: "2026.5.1"
+            board: esp32-c6-devkitc-1
+            receiver_pin: GPIO18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Cache ESPHome toolchains
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/platformio
+            ~/.platformio
+          key: esphome-${{ matrix.esphome_version }}-${{ matrix.board }}
+      - name: Install pinned ESPHome
+        run: python -m pip install "esphome==${{ matrix.esphome_version }}"
+      - name: Validate configuration
+        run: >-
+          esphome -s board "${{ matrix.board }}"
+          -s receiver_pin "${{ matrix.receiver_pin }}"
+          config tests/ci.yaml
+      - name: Compile configuration
+        run: >-
+          esphome -s board "${{ matrix.board }}"
+          -s receiver_pin "${{ matrix.receiver_pin }}"
+          compile tests/ci.yaml

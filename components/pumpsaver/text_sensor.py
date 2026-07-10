@@ -7,7 +7,11 @@
 
 Publishes the newest fault-history record, e.g.
 "dry well / underload - 774 W, 241.7 V, 5.70 A @ 22d 14h 52m".
-Publishes once after boot and again whenever the device logs a new fault.
+Publishes after two consecutive complete generations have matching event data:
+first as a quiet boot baseline, then for each confirmed ring change. An empty
+or cleared history is published explicitly. A fault during initial acquisition
+is absorbed into the baseline, and rapid changes can coalesce until two matching
+generations arrive.
 Code names: 1 (dry-well/underload) is proven; 2-4 follow the family's
 documented fault-class ordering and carry a '?' until confirmed.
 """
